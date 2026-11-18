@@ -61,6 +61,20 @@ The app logs to the unified log under subsystem `local.mybudget.MyBudget`:
 log show --last 5m --info --predicate 'subsystem == "local.mybudget.MyBudget"'
 ```
 
+## The window
+
+- **Plan chooser:** at launch the window lists the plans. Double-click one or press Open; New Plan… names a plan and picks its currency. The app reopens the last plan at the next launch. File ▸ Switch Plan changes plans, and File ▸ All Plans… (⇧⌘O) goes back to the chooser.
+- **Sidebar:** All Accounts, then the accounts in collapsible groups (Cash, Credit, Tracking, Closed), each with its total. Empty groups are hidden, and a group's expanded state is remembered. Accounts are in the server's order, oldest first.
+- **Add Account** (at the bottom of the sidebar, or File ▸ New Account…, ⇧⌘N) asks for a name, type, balance, date and note. For credit cards, lines of credit and liabilities it asks for the amount owed and sends it negated.
+- **Right-click an account** to edit its name and note, close or reopen it, or delete it. The server only closes an account with a zero balance (SPEC 5.8), so Close Account is disabled until then, and only deletes one with no transactions (SPEC 5.9).
+- **Detail:** a placeholder until the transaction register is built.
+
+Until the server keeps its data (SPEC section 15), every launch starts empty. To look at the UI with data, launch a Debug build with `MYBUDGET_SAMPLE_DATA=1`, which adds and opens a sample plan:
+
+```sh
+open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
+```
+
 ## Layout
 
 | Path | What |
@@ -68,12 +82,20 @@ log show --last 5m --info --predicate 'subsystem == "local.mybudget.MyBudget"'
 | `MyBudget/MyBudgetApp.swift` | App entry point; the app delegate owns the server's lifetime |
 | `MyBudget/ServerProcess.swift` | Starts the bundled server and reads its address |
 | `MyBudget/APIClient.swift` | Typed client for the HTTP API |
-| `MyBudget/AppModel.swift` | Observable app state |
-| `MyBudget/ContentView.swift` | The window |
+| `MyBudget/AppModel.swift` | Observable app state: the server, the plans and the open plan |
+| `MyBudget/PlanModel.swift` | The open plan's accounts; changes go to the server first |
+| `MyBudget/Account.swift` | Account types, sidebar groups and request bodies (SPEC section 5) |
+| `MyBudget/Money.swift` | Formats and parses amounts in milliunits (SPEC 3.7) |
+| `MyBudget/ContentView.swift` | The window: server state, then the plan chooser or the open plan |
+| `MyBudget/PlanChooser.swift` | Lists plans to open, and the New Plan sheet |
+| `MyBudget/PlanView.swift` | The open plan's split view, and the File menu commands |
+| `MyBudget/AccountSidebar.swift` | Accounts in collapsible Cash, Credit, Tracking and Closed groups |
+| `MyBudget/AccountSheets.swift` | The Add Account and Edit Account sheets |
 | `MyBudgetTests/` | Unit and integration tests (Swift Testing) |
 | `Config/` | Entitlements for the app and the bundled server |
 | `scripts/embed-server.sh` | The build phase that builds and embeds the server |
 
 ## Known gaps
 
-- Until the server implements SPEC 1.4 (round `app-1`), a server whose app crashed keeps running until it's killed. Each launch uses a new port, so this doesn't break the next launch.
+- An account with a non-zero balance can't be closed. YNAB offers to add a balancing transaction first; that waits for the transaction register.
+- Accounts can't be reordered; the sidebar follows the server's order.

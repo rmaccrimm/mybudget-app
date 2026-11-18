@@ -30,10 +30,34 @@ struct APIClient: Sendable {
         try decode(await send("GET", "plans").0)
     }
 
-    /// SPEC 4.1.
-    func createPlan(name: String) async throws -> Plan {
-        struct Body: Encodable { let name: String }
-        return try decode(await send("POST", "plans", body: Body(name: name)).0)
+    /// SPEC 4.1. A `nil` currency code leaves the server's default (USD).
+    func createPlan(name: String, currencyCode: String? = nil) async throws -> Plan {
+        struct Body: Encodable { let name: String; let currencyCode: String? }
+        return try decode(
+            await send("POST", "plans", body: Body(name: name, currencyCode: currencyCode)).0
+        )
+    }
+
+    /// SPEC 5.6: the plan's accounts, oldest first.
+    func accounts(planID: Plan.ID) async throws -> [Account] {
+        try decode(await send("GET", "plans/\(planID)/accounts").0)
+    }
+
+    /// SPEC 5.2.
+    func createAccount(planID: Plan.ID, _ account: NewAccount) async throws -> Account {
+        try decode(await send("POST", "plans/\(planID)/accounts", body: account).0)
+    }
+
+    /// SPEC 5.7 and 5.8.
+    func updateAccount(
+        planID: Plan.ID, accountID: Account.ID, _ patch: AccountPatch
+    ) async throws -> Account {
+        try decode(await send("PATCH", "plans/\(planID)/accounts/\(accountID)", body: patch).0)
+    }
+
+    /// SPEC 5.9: fails with 409 if the account has any transactions.
+    func deleteAccount(planID: Plan.ID, accountID: Account.ID) async throws {
+        _ = try await send("DELETE", "plans/\(planID)/accounts/\(accountID)")
     }
 
     // MARK: - Plumbing

@@ -4,7 +4,8 @@ import os
 
 private let log = Logger(subsystem: "local.mybudget.MyBudget", category: "server")
 
-/// The app's state: the connection to the bundled server and the data shown.
+/// The app's state: the connection to the bundled server, its plans, and the
+/// plan the window has open.
 @MainActor
 @Observable
 final class AppModel {
@@ -16,13 +17,20 @@ final class AppModel {
 
     private(set) var connection: Connection = .starting
     private(set) var plans: [Plan] = []
-    /// The last request that failed while connected, shown until the next success.
-    private(set) var lastError: String?
+    /// The plan the window shows. `nil` shows the plan chooser.
+    private(set) var openPlan: PlanModel?
 
     @ObservationIgnored private let server = ServerProcess()
     @ObservationIgnored private var client: APIClient?
+    @ObservationIgnored private let defaults: UserDefaults
 
-    var isConnected: Bool { client != nil }
+    /// The plan to reopen at launch. Ids are never reused (SPEC 3.5), so a
+    /// stale one simply isn't found.
+    private static let lastPlanKey = "LastOpenPlanID"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     func start() async {
         do {
@@ -31,14 +39,27 @@ final class AppModel {
             guard try await client.health() else {
                 throw APIClient.ServerError(status: 200, message: "GET /health didn't return ok")
             }
+            plans = try await client.plans()
+            #if DEBUG
+            if plans.isEmpty, ProcessInfo.processInfo.environment["MYBUDGET_SAMPLE_DATA"] == "1" {
+                let sample = try await Self.addSampleData(client)
+                plans = [sample]
+                defaults.set(sample.id, forKey: Self.lastPlanKey)
+            }
+            #endif
             self.client = client
             connection = .connected(url)
-            log.info("Connected to \(url.absoluteString, privacy: .public)")
-            await reload()
+            log.info("Connected to \(url.absoluteString, privacy: .public), \(self.plans.count) plans")
         } catch {
             server.stop()
             log.error("Server failed: \(error.localizedDescription, privacy: .public)")
             connection = .failed(error.localizedDescription)
+            return
+        }
+
+        if let id = defaults.string(forKey: Self.lastPlanKey),
+           let plan = plans.first(where: { $0.id == id }) {
+            try? await open(plan)
         }
     }
 
@@ -46,27 +67,65 @@ final class AppModel {
         server.stop()
     }
 
-    func reload() async {
-        await perform { client in
-            plans = try await client.plans()
-            log.info("Loaded \(self.plans.count) plans")
-        }
+    func createPlan(name: String, currencyCode: String) async throws -> Plan {
+        let client = try requireClient()
+        let plan = try await client.createPlan(name: name, currencyCode: currencyCode)
+        plans.append(plan)
+        return plan
     }
 
-    func addPlan(named name: String) async {
-        await perform { client in
-            plans.append(try await client.createPlan(name: name))
-        }
+    /// Loads the plan's accounts, then shows it.
+    func open(_ plan: Plan) async throws {
+        let model = PlanModel(plan: plan, client: try requireClient())
+        try await model.reload()
+        openPlan = model
+        defaults.set(plan.id, forKey: Self.lastPlanKey)
+        log.info("Opened plan \(plan.id, privacy: .public)")
     }
 
-    private func perform(_ work: (APIClient) async throws -> Void) async {
-        guard let client else { return }
-        do {
-            try await work(client)
-            lastError = nil
-        } catch {
-            log.error("Request failed: \(error.localizedDescription, privacy: .public)")
-            lastError = error.localizedDescription
+    /// Goes back to the plan chooser, which the next launch shows too.
+    func closePlan() {
+        openPlan = nil
+        defaults.removeObject(forKey: Self.lastPlanKey)
+    }
+
+    #if DEBUG
+    /// A plan to look at the UI with, until the server keeps its data
+    /// (SPEC section 15): `open --env MYBUDGET_SAMPLE_DATA=1 MyBudget.app`.
+    private static func addSampleData(_ client: APIClient) async throws -> Plan {
+        let plan = try await client.createPlan(name: "Household")
+        let date = PlanDate.string(from: .now)
+        let accounts: [(String, AccountType, Int)] = [
+            ("Everyday Checking", .checking, 2_534_120),
+            ("Emergency Fund", .savings, 8_000_000),
+            ("Wallet", .cash, 62_000),
+            ("Visa", .creditCard, -412_870),
+            ("Home Equity Line", .lineOfCredit, 0),
+            ("House", .otherAsset, 350_000_000),
+            ("Car Loan", .otherLiability, -14_250_000),
+            ("Old Savings", .savings, 0),
+        ]
+        for (name, type, balance) in accounts {
+            let account = try await client.createAccount(planID: plan.id, NewAccount(
+                name: name, type: type, startingBalance: balance,
+                startingDate: balance == 0 ? nil : date
+            ))
+            if name == "Old Savings" {
+                _ = try await client.updateAccount(
+                    planID: plan.id, accountID: account.id, AccountPatch(closed: true)
+                )
+            }
         }
+        return plan
+    }
+    #endif
+
+    private func requireClient() throws -> APIClient {
+        guard let client else { throw NotConnected() }
+        return client
+    }
+
+    struct NotConnected: LocalizedError {
+        var errorDescription: String? { "The server isn't running." }
     }
 }
