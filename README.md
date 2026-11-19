@@ -15,7 +15,7 @@ The priorities are fast startup and first-class macOS support.
 | Minimum macOS | 15.0 (built with the Xcode 26 SDK) |
 | State | Observation (`@Observable`) |
 | Networking | `URLSession` + `Codable`, async/await |
-| Local storage | None: the server owns the data |
+| Local storage | None in the app: the server keeps each plan in a SQLite file (SPEC section 15) |
 | Project | Plain Xcode project; `MyBudget/` is a folder-synced group, so new files need no `project.pbxproj` edits |
 | Dependencies | None |
 
@@ -29,8 +29,9 @@ The server ships inside the app, at `MyBudget.app/Contents/MacOS/mybudget-server
 
 - **Build:** the "Build and Embed Server" build phase runs `scripts/embed-server.sh`. It builds `../server` with cargo for each architecture in `ARCHS`, debug or release to match the Xcode configuration. It joins them with `lipo` and signs the result with `Config/Server.entitlements`, so the server inherits the app's sandbox. Cargo's output goes in Xcode's build folder, never in `server/target`.
 - **Launch:** `ServerProcess` starts the server with `MYBUDGET_ADDR=127.0.0.1:0` (SPEC 1.2). It reads the `listening on <ip>:<port>` line (SPEC 1.3) for the base URL, then checks `GET /health`. The window opens immediately and shows "Starting server…" until then.
-- **Data:** `MYBUDGET_DATA` points at `Application Support/MyBudget` in the app's container. The server only uses it once SPEC section 15 (persistence) is built; until then each launch starts empty.
-- **Quit:** the server is stopped when the app quits. The app also sets `MYBUDGET_EXIT_ON_STDIN_EOF=1` and holds the only write end of the server's stdin. Once the server implements SPEC 1.4, it exits whenever the app dies, even in a crash.
+- **Data:** `MYBUDGET_DATA` points at `Application Support/MyBudget` in the app's container, `~/Library/Containers/local.mybudget.MyBudget/Data/Library/Application Support/MyBudget/`. The server creates it and keeps one file per plan there, named after the plan, such as `Household.sqlite` (SPEC 15.2). It saves each change before it answers (SPEC 15.5), so the app has nothing to save and nothing to lose in a crash. The server reads the folder only at startup (SPEC 15.11), so quit the app before adding, copying or removing plan files.
+- **Stderr:** `ServerProcess` logs each line the server writes to stderr, such as a plan file it skipped at startup (SPEC 15.7). If the server exits before listening, for example because it can't use its data folder (SPEC 15.1), the window shows its message.
+- **Quit:** the app sets `MYBUDGET_EXIT_ON_STDIN_EOF=1` and holds the only write end of the server's stdin. On quit it closes stdin, so the server finishes any save in progress and exits (SPEC 1.4), and it sends `SIGTERM` only if the server is still running a second later. The kernel closes the pipe if the app crashes, so the server never outlives it.
 - **Reading stdout:** `ServerProcess` reads the server's stdout with `FileHandle.readabilityHandler` and keeps discarding it after the first line. Don't change this to `FileHandle.bytes`: its blocking `read` holds a Swift concurrency thread for the whole life of the server, and it hung the hosted tests.
 
 The app is sandboxed (`Config/MyBudget.entitlements`), with network client access to reach the server and network server access so the server can listen. It's signed to run locally; set a team in Xcode to distribute it.
@@ -53,7 +54,7 @@ Run the tests with ⌘U in Xcode, or:
 xcodebuild test -project MyBudget.xcodeproj -scheme MyBudget -derivedDataPath build
 ```
 
-`MyBudgetTests` uses Swift Testing and runs inside the app. The tests start the bundled server, so they cover the build phase, signing and sandbox as well as the client. When the app only hosts the tests, it doesn't start a server of its own.
+`MyBudgetTests` uses Swift Testing and runs inside the app. The tests start the bundled server, so they cover the build phase, signing and sandbox as well as the client. When the app only hosts the tests, it doesn't start a server of its own. The tests share the app's container, so each server they start keeps its data in memory or in its own temporary folder, never in the app's saved plans.
 
 The app logs to the unified log under subsystem `local.mybudget.MyBudget`:
 
@@ -69,7 +70,7 @@ log show --last 5m --info --predicate 'subsystem == "local.mybudget.MyBudget"'
 - **Right-click an account** to edit its name and note, close or reopen it, or delete it. The server only closes an account with a zero balance (SPEC 5.8), so Close Account is disabled until then, and only deletes one with no transactions (SPEC 5.9).
 - **Detail:** a placeholder until the transaction register is built.
 
-Until the server keeps its data (SPEC section 15), every launch starts empty. To look at the UI with data, launch a Debug build with `MYBUDGET_SAMPLE_DATA=1`, which adds and opens a sample plan:
+To look at the UI with data without touching your saved plans, launch a Debug build with `MYBUDGET_SAMPLE_DATA=1`. The server then keeps everything in memory, and the app adds and opens a sample plan, which is gone at the next launch:
 
 ```sh
 open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app

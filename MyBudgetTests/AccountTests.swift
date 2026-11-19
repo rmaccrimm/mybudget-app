@@ -102,7 +102,7 @@ struct AccountRuleTests {
 @Suite(.serialized)
 struct BundledAccountTests {
     @Test func createsAccountsWithStartingBalances() async throws {
-        let server = ServerProcess()
+        let server = ServerProcess(dataDirectory: nil)
         defer { server.stop() }
         let client = APIClient(baseURL: try await server.start())
         let plan = try await client.createPlan(name: "Household", currencyCode: "EUR")
@@ -127,7 +127,7 @@ struct BundledAccountTests {
     }
 
     @Test func closesReopensRenamesAndDeletes() async throws {
-        let server = ServerProcess()
+        let server = ServerProcess(dataDirectory: nil)
         defer { server.stop() }
         let client = APIClient(baseURL: try await server.start())
         let plan = try await client.createPlan(name: "Household")
@@ -152,7 +152,7 @@ struct BundledAccountTests {
     }
 
     @Test func refusesToCloseOrDeleteAnAccountWithMoneyInIt() async throws {
-        let server = ServerProcess()
+        let server = ServerProcess(dataDirectory: nil)
         defer { server.stop() }
         let client = APIClient(baseURL: try await server.start())
         let plan = try await client.createPlan(name: "Household")

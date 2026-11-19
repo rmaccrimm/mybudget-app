@@ -20,7 +20,7 @@ final class AppModel {
     /// The plan the window shows. `nil` shows the plan chooser.
     private(set) var openPlan: PlanModel?
 
-    @ObservationIgnored private let server = ServerProcess()
+    @ObservationIgnored private let server: ServerProcess
     @ObservationIgnored private var client: APIClient?
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -30,6 +30,17 @@ final class AppModel {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        server = ServerProcess(dataDirectory: Self.usesSampleData ? nil : ServerProcess.defaultDataDirectory)
+    }
+
+    /// Whether this launch shows a throwaway sample plan instead of the saved
+    /// plans: `open --env MYBUDGET_SAMPLE_DATA=1 MyBudget.app`, Debug builds only.
+    private static var usesSampleData: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["MYBUDGET_SAMPLE_DATA"] == "1"
+        #else
+        false
+        #endif
     }
 
     func start() async {
@@ -41,10 +52,9 @@ final class AppModel {
             }
             plans = try await client.plans()
             #if DEBUG
-            if plans.isEmpty, ProcessInfo.processInfo.environment["MYBUDGET_SAMPLE_DATA"] == "1" {
+            if Self.usesSampleData {
                 let sample = try await Self.addSampleData(client)
                 plans = [sample]
-                defaults.set(sample.id, forKey: Self.lastPlanKey)
             }
             #endif
             self.client = client
@@ -57,8 +67,10 @@ final class AppModel {
             return
         }
 
-        if let id = defaults.string(forKey: Self.lastPlanKey),
-           let plan = plans.first(where: { $0.id == id }) {
+        if Self.usesSampleData, let sample = plans.first {
+            try? await open(sample)
+        } else if let id = defaults.string(forKey: Self.lastPlanKey),
+                  let plan = plans.first(where: { $0.id == id }) {
             try? await open(plan)
         }
     }
@@ -74,24 +86,29 @@ final class AppModel {
         return plan
     }
 
-    /// Loads the plan's accounts, then shows it.
+    /// Loads the plan's accounts, then shows it. A plan opened while showing
+    /// sample data isn't saved, so it isn't remembered either.
     func open(_ plan: Plan) async throws {
         let model = PlanModel(plan: plan, client: try requireClient())
         try await model.reload()
         openPlan = model
-        defaults.set(plan.id, forKey: Self.lastPlanKey)
+        if !Self.usesSampleData {
+            defaults.set(plan.id, forKey: Self.lastPlanKey)
+        }
         log.info("Opened plan \(plan.id, privacy: .public)")
     }
 
     /// Goes back to the plan chooser, which the next launch shows too.
     func closePlan() {
         openPlan = nil
-        defaults.removeObject(forKey: Self.lastPlanKey)
+        if !Self.usesSampleData {
+            defaults.removeObject(forKey: Self.lastPlanKey)
+        }
     }
 
     #if DEBUG
-    /// A plan to look at the UI with, until the server keeps its data
-    /// (SPEC section 15): `open --env MYBUDGET_SAMPLE_DATA=1 MyBudget.app`.
+    /// A plan to look at the UI with. The server keeps it only in memory, so
+    /// it never mixes with the saved plans and each launch starts it afresh.
     private static func addSampleData(_ client: APIClient) async throws -> Plan {
         let plan = try await client.createPlan(name: "Household")
         let date = PlanDate.string(from: .now)
