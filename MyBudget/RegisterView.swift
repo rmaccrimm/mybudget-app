@@ -57,65 +57,53 @@ struct RegisterView: View {
 
     private var table: some View {
         Table(rows, selection: $selection) {
-            TableColumn("") { row in
-                FlagMark(color: row.transaction.flagColor)
+            TableColumn("") { transaction in
+                FlagMark(color: transaction.flagColor)
             }
             .width(16)
 
             if accountID == nil {
-                TableColumn("Account") { row in
-                    Text(plan.account(id: row.transaction.accountId)?.name ?? "")
+                TableColumn("Account") { transaction in
+                    Text(plan.account(id: transaction.accountId)?.name ?? "")
                 }
                 .width(min: 70, ideal: 100)
             }
 
-            TableColumn("Date") { row in
-                Text(PlanDate.display(row.transaction.date)).monospacedDigit()
+            TableColumn("Date") { transaction in
+                Text(PlanDate.display(transaction.date)).monospacedDigit()
             }
             .width(min: 76, ideal: 84)
 
-            TableColumn("Payee") { row in
-                Text(plan.payeeName(row.transaction.payeeId))
+            TableColumn("Payee") { transaction in
+                Text(plan.payeeName(transaction.payeeId))
             }
             .width(min: 80, ideal: 110)
 
-            TableColumn("Category") { row in
-                CategoryCell(plan: plan, transaction: row.transaction)
+            TableColumn("Category") { transaction in
+                CategoryCell(plan: plan, transaction: transaction)
             }
             .width(min: 80, ideal: 110)
 
-            TableColumn("Memo") { row in
-                Text(row.transaction.memo ?? "").foregroundStyle(.secondary)
+            TableColumn("Memo") { transaction in
+                Text(transaction.memo ?? "").foregroundStyle(.secondary)
             }
-            .width(min: 50, ideal: 80)
+            .width(min: 60, ideal: 180)
 
-            TableColumn("Outflow") { row in
-                AmountCell(amount: row.transaction.amount < 0 ? -row.transaction.amount : nil, currencyCode: plan.currencyCode)
+            TableColumn("Outflow") { transaction in
+                AmountCell(amount: transaction.amount < 0 ? -transaction.amount : nil, currencyCode: plan.currencyCode)
             }
             .width(min: 90, ideal: 110)
             .alignment(.trailing)
 
-            TableColumn("Inflow") { row in
-                AmountCell(amount: row.transaction.amount > 0 ? row.transaction.amount : nil, currencyCode: plan.currencyCode)
+            TableColumn("Inflow") { transaction in
+                AmountCell(amount: transaction.amount > 0 ? transaction.amount : nil, currencyCode: plan.currencyCode)
             }
             .width(min: 90, ideal: 110)
             .alignment(.trailing)
 
-            if accountID != nil {
-                TableColumn("Balance") { row in
-                    if let balance = row.runningBalance {
-                        Text(Money.format(balance, currencyCode: plan.currencyCode))
-                            .monospacedDigit()
-                            .foregroundStyle(balance < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                    }
-                }
-                .width(min: 90, ideal: 110)
-                .alignment(.trailing)
-            }
-
-            TableColumn("") { row in
-                ClearedButton(state: row.transaction.cleared) {
-                    toggleCleared([row.transaction])
+            TableColumn("") { transaction in
+                ClearedButton(state: transaction.cleared) {
+                    toggleCleared([transaction])
                 }
             }
             .width(24)
@@ -177,8 +165,8 @@ struct RegisterView: View {
 
     // MARK: Data
 
-    private var rows: [RegisterRow] {
-        RegisterRow.rows(plan.transactions, accountID: accountID)
+    private var rows: [Transaction] {
+        Transaction.register(plan.transactions, accountID: accountID)
     }
 
     /// The accounts whose balances the bar adds up.
@@ -189,7 +177,7 @@ struct RegisterView: View {
 
     /// In the register's order.
     private func transactions(_ ids: Set<Transaction.ID>) -> [Transaction] {
-        rows.map(\.transaction).filter { ids.contains($0.id) }
+        rows.filter { ids.contains($0.id) }
     }
 
     private var deletingTitle: String {

@@ -23,20 +23,15 @@ struct TransactionRuleTests {
         #expect(transaction.subtransactions[1].memo == "light bulbs")
     }
 
-    @Test func runningBalanceAddsUpOldestFirstAndListsNewestFirst() {
+    @Test func registerListsAnAccountNewestFirst() {
         let transactions = [
             Self.transaction("a", account: "checking", amount: 2_500_000),
             Self.transaction("b", account: "savings", amount: 100_000),
             Self.transaction("c", account: "checking", amount: -120_000),
             Self.transaction("d", account: "checking", amount: -30_000),
         ]
-        let rows = RegisterRow.rows(transactions, accountID: "checking")
-        #expect(rows.map(\.id) == ["d", "c", "a"])
-        #expect(rows.map(\.runningBalance) == [2_350_000, 2_380_000, 2_500_000])
-
-        let all = RegisterRow.rows(transactions, accountID: nil)
-        #expect(all.map(\.id) == ["d", "c", "b", "a"])
-        #expect(all.allSatisfy { $0.runningBalance == nil })
+        #expect(Transaction.register(transactions, accountID: "checking").map(\.id) == ["d", "c", "a"])
+        #expect(Transaction.register(transactions, accountID: nil).map(\.id) == ["d", "c", "b", "a"])
     }
 
     @Test func resolvesPayeeNames() {
@@ -151,8 +146,7 @@ struct BundledTransactionTests {
         #expect(plan.payeeName(shop.payeeId) == "Corner Shop")
         #expect(plan.account(id: checking.id)?.balance == 880_000)
         #expect(plan.account(id: checking.id)?.unclearedBalance == -120_000)
-        let rows = RegisterRow.rows(plan.transactions, accountID: checking.id)
-        #expect(rows.map(\.runningBalance) == [880_000, 1_000_000])
+        #expect(Transaction.register(plan.transactions, accountID: checking.id).map(\.id).first == shop.id)
         #expect(plan.lastCategory(forPayee: try #require(shop.payeeId)) == groceries.id)
 
         try await plan.update(shop, TransactionPatch(cleared: .cleared, flagColor: .some(.green)))

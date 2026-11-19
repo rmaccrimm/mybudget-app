@@ -7,6 +7,9 @@ struct ComboBox: NSViewRepresentable {
     @Binding var text: String
     var items: [String]
     var placeholder: String = ""
+    /// Changing this puts the cursor in the box. SwiftUI's focus state
+    /// doesn't reach an AppKit view.
+    var focusRequest = 0
 
     func makeNSView(context: Context) -> NSComboBox {
         let box = NSComboBox()
@@ -23,6 +26,11 @@ struct ComboBox: NSViewRepresentable {
 
     func updateNSView(_ box: NSComboBox, context: Context) {
         context.coordinator.text = $text
+        if context.coordinator.focusRequest != focusRequest {
+            context.coordinator.focusRequest = focusRequest
+            box.stringValue = text
+            box.window?.makeFirstResponder(box)
+        }
         if box.objectValues as? [String] != items {
             box.removeAllItems()
             box.addItems(withObjectValues: items)
@@ -33,15 +41,17 @@ struct ComboBox: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, focusRequest: focusRequest)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSComboBoxDelegate {
         var text: Binding<String>
+        var focusRequest: Int
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, focusRequest: Int) {
             self.text = text
+            self.focusRequest = focusRequest
         }
 
         func controlTextDidChange(_ notification: Notification) {

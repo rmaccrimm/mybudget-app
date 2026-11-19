@@ -216,29 +216,11 @@ private extension PayeeChoice {
 
 // MARK: - The register
 
-/// A row of an account's register: the transaction and, in a single
-/// account's register, the account's balance after it.
-struct RegisterRow: Identifiable, Hashable, Sendable {
-    let transaction: Transaction
-    let runningBalance: Int?
-
-    var id: Transaction.ID { transaction.id }
-
-    /// The register for `accountID`, or for every account when it's `nil`,
-    /// newest first. `transactions` must be in the server's order: by date,
-    /// and oldest first within a date (SPEC 8.5), so the running balance
-    /// adds them up in that order.
-    static func rows(_ transactions: [Transaction], accountID: Account.ID?) -> [RegisterRow] {
-        guard let accountID else {
-            return transactions.reversed().map { RegisterRow(transaction: $0, runningBalance: nil) }
-        }
-        var balance = 0
-        var rows: [RegisterRow] = []
-        for transaction in transactions where transaction.accountId == accountID {
-            balance += transaction.amount
-            rows.append(RegisterRow(transaction: transaction, runningBalance: balance))
-        }
-        return rows.reversed()
+extension Transaction {
+    /// The register for `accountID`, or for every account when it's `nil`:
+    /// newest first, the server's order (SPEC 8.5) reversed.
+    static func register(_ transactions: [Transaction], accountID: Account.ID?) -> [Transaction] {
+        transactions.reversed().filter { accountID == nil || $0.accountId == accountID }
     }
 }
 

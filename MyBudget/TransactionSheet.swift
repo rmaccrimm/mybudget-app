@@ -30,6 +30,9 @@ struct TransactionSheet: View {
     @State private var creatingCategory = false
     @State private var saving = false
     @State private var error: String?
+    /// What Save and Add Another just added, until the next save.
+    @State private var added: String?
+    @State private var payeeFocusRequest = 0
 
     /// The category the sheet started with, to tell whether it changed.
     private let initialCategoryID: Category.ID?
@@ -73,6 +76,62 @@ struct TransactionSheet: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            form
+            Divider()
+            buttons
+        }
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .sheet(isPresented: $creatingCategory) {
+            NewCategorySheet(plan: plan) { categoryID = $0.id }
+        }
+        .onChange(of: payeeChoice) {
+            // As YNAB does, a known payee brings its last category to a new
+            // transaction that has none yet.
+            if original == nil, categoryID == nil, rule == .required,
+               case .existing(let id) = payeeChoice {
+                categoryID = plan.lastCategory(forPayee: id)
+            }
+        }
+        .onChange(of: accountID) {
+            if original == nil, let account {
+                cleared = ClearedState.default(for: account.type).isCleared
+            }
+        }
+    }
+
+    /// A sheet's toolbar shows only one confirmation button, so the sheet
+    /// draws its own row to fit Save and Add Another beside Save.
+    private var buttons: some View {
+        HStack {
+            Spacer()
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+            if original == nil {
+                Button("Save and Add Another") { save(addingAnother: true) }
+                    .help("Save and Add Another (⌘↩)")
+                    .disabled(problem != nil || isIncomplete || saving)
+                    .background {
+                        // AppKit draws any button with a Return shortcut as
+                        // the default button, so ⌘↩ lives on a hidden one.
+                        Button("Save and Add Another") { save(addingAnother: true) }
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .disabled(problem != nil || isIncomplete || saving)
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                    }
+            }
+            Button("Save") { save(addingAnother: false) }
+                .keyboardShortcut(.defaultAction)
+                .disabled(problem != nil || isIncomplete || saving)
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    private var form: some View {
         Form {
             Section {
                 if original == nil {
@@ -94,7 +153,10 @@ struct TransactionSheet: View {
                 }
                 DatePicker("Date", selection: $date, displayedComponents: .date)
                 LabeledContent("Payee") {
-                    ComboBox(text: $payeeText, items: payeeSuggestions, placeholder: "Optional")
+                    ComboBox(
+                        text: $payeeText, items: payeeSuggestions, placeholder: "Optional",
+                        focusRequest: payeeFocusRequest
+                    )
                 }
                 category
             } header: {
@@ -145,38 +207,15 @@ struct TransactionSheet: View {
                     Text(problem).foregroundStyle(.red)
                 } else if let error {
                     Text(error).foregroundStyle(.red)
+                } else if let added {
+                    Label(added, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
         .disabled(saving)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(original == nil ? "Add" : "Save", action: save)
-                    .disabled(problem != nil || isIncomplete || saving)
-            }
-        }
-        .sheet(isPresented: $creatingCategory) {
-            NewCategorySheet(plan: plan) { categoryID = $0.id }
-        }
-        .onChange(of: payeeChoice) {
-            // As YNAB does, a known payee brings its last category to a new
-            // transaction that has none yet.
-            if original == nil, categoryID == nil, rule == .required,
-               case .existing(let id) = payeeChoice {
-                categoryID = plan.lastCategory(forPayee: id)
-            }
-        }
-        .onChange(of: accountID) {
-            if original == nil, let account {
-                cleared = ClearedState.default(for: account.type).isCleared
-            }
-        }
     }
 
     @ViewBuilder
@@ -343,7 +382,9 @@ struct TransactionSheet: View {
         return patch
     }
 
-    private func save() {
+    /// Saves, then closes the sheet or, `addingAnother`, empties it for the
+    /// next transaction.
+    private func save(addingAnother: Bool) {
         guard problem == nil, !isIncomplete else { return }
         saving = true
         Task {
@@ -352,13 +393,35 @@ struct TransactionSheet: View {
                 if let original {
                     try await plan.update(original, patch(for: original))
                 } else if let newTransaction {
-                    _ = try await plan.addTransaction(newTransaction)
+                    let transaction = try await plan.addTransaction(newTransaction)
+                    if addingAnother {
+                        startAnother(after: transaction)
+                        return
+                    }
                 }
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    /// Empties the sheet but keeps the account and date, since a batch of
+    /// receipts is often from one account and one day.
+    private func startAnother(after transaction: Transaction) {
+        let payee = plan.payeeName(transaction.payeeId)
+        let amount = Money.format(abs(transaction.amount), currencyCode: plan.currencyCode)
+        let kind = transaction.amount > 0 ? "inflow" : "outflow"
+        added = payee.isEmpty ? "Added an \(kind) of \(amount)." : "Added “\(payee)”, an \(kind) of \(amount)."
+        error = nil
+        payeeText = ""
+        categoryID = nil
+        direction = .outflow
+        amountText = ""
+        memo = ""
+        flag = nil
+        cleared = account.map { ClearedState.default(for: $0.type).isCleared } ?? false
+        payeeFocusRequest += 1
     }
 }
 
