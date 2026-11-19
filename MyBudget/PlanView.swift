@@ -12,13 +12,14 @@ struct PlanView: View {
 
     @State private var selection: SidebarItem? = .allAccounts
     @State private var addingAccount = false
+    @State private var editor: TransactionEditor?
 
     var body: some View {
         NavigationSplitView {
             AccountSidebar(plan: plan, selection: $selection, addingAccount: $addingAccount)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
-            TransactionsPlaceholder(plan: plan, selection: selection)
+            RegisterView(plan: plan, accountID: selectedAccountID, editor: $editor)
         }
         .navigationTitle(plan.plan.name)
         .navigationSubtitle(subtitle)
@@ -27,13 +28,24 @@ struct PlanView: View {
                 selection = .account(account.id)
             }
         }
-        .focusedSceneValue(\.newAccount, NewAccountAction { addingAccount = true })
+        .sheet(item: $editor) { editor in
+            TransactionSheet(plan: plan, editor: editor)
+        }
+        .focusedSceneValue(\.newAccount, PlanAction { addingAccount = true })
+        .focusedSceneValue(
+            \.newTransaction,
+            plan.accounts.isEmpty ? nil : PlanAction { editor = .add(selectedAccountID) }
+        )
         .onChange(of: plan.accounts) {
             // The selected account was deleted.
             if case .account(let id) = selection, plan.account(id: id) == nil {
                 selection = .allAccounts
             }
         }
+    }
+
+    private var selectedAccountID: Account.ID? {
+        if case .account(let id) = selection { id } else { nil }
     }
 
     private var subtitle: String {
@@ -44,58 +56,30 @@ struct PlanView: View {
     }
 }
 
-/// Stands in for the transaction register, which isn't built yet.
-private struct TransactionsPlaceholder: View {
-    let plan: PlanModel
-    let selection: SidebarItem?
-
-    var body: some View {
-        switch selection {
-        case .account(let id):
-            if let account = plan.account(id: id) {
-                ContentUnavailableView {
-                    Label(account.name, systemImage: account.type.systemImage)
-                } description: {
-                    Text("\(account.type.title) · \(Money.format(account.balance, currencyCode: plan.currencyCode))")
-                    Text("Its transactions will appear here.")
-                }
-            }
-        case .allAccounts, nil:
-            if plan.accounts.isEmpty {
-                ContentUnavailableView {
-                    Label("No Accounts", systemImage: "building.columns")
-                } description: {
-                    Text("Add the accounts you spend from, save in and owe on.")
-                }
-            } else {
-                ContentUnavailableView(
-                    "All Accounts",
-                    systemImage: "tray.full",
-                    description: Text("Transactions from every account will appear here.")
-                )
-            }
-        }
-    }
-}
-
-/// Lets the menu bar's New Account command reach the focused window.
-struct NewAccountAction {
+/// Lets a menu bar command, such as New Account, reach the focused window.
+struct PlanAction {
     let perform: @MainActor () -> Void
     @MainActor func callAsFunction() { perform() }
 }
 
 extension FocusedValues {
-    @Entry var newAccount: NewAccountAction?
+    @Entry var newAccount: PlanAction?
+    @Entry var newTransaction: PlanAction?
 }
 
-/// File menu commands: add an account, switch plans, or go back to the
-/// plan chooser.
+/// File menu commands: add a transaction or an account, switch plans, or go
+/// back to the plan chooser.
 struct PlanCommands: Commands {
     let app: AppModel
     @FocusedValue(\.newAccount) private var newAccount
+    @FocusedValue(\.newTransaction) private var newTransaction
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Transaction…") { newTransaction?() }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(newTransaction == nil)
+
             Button("New Account…") { newAccount?() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(newAccount == nil)

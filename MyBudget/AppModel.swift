@@ -111,7 +111,7 @@ final class AppModel {
     /// it never mixes with the saved plans and each launch starts it afresh.
     private static func addSampleData(_ client: APIClient) async throws -> Plan {
         let plan = try await client.createPlan(name: "Household")
-        let date = PlanDate.string(from: .now)
+        let date = PlanDate.string(from: Calendar.current.date(byAdding: .month, value: -1, to: .now)!)
         let accounts: [(String, AccountType, Int)] = [
             ("Everyday Checking", .checking, 2_534_120),
             ("Emergency Fund", .savings, 8_000_000),
@@ -122,16 +122,43 @@ final class AppModel {
             ("Car Loan", .otherLiability, -14_250_000),
             ("Old Savings", .savings, 0),
         ]
+        var created: [String: Account] = [:]
         for (name, type, balance) in accounts {
             let account = try await client.createAccount(planID: plan.id, NewAccount(
                 name: name, type: type, startingBalance: balance,
                 startingDate: balance == 0 ? nil : date
             ))
+            created[name] = account
             if name == "Old Savings" {
                 _ = try await client.updateAccount(
                     planID: plan.id, accountID: account.id, AccountPatch(closed: true)
                 )
             }
+        }
+
+        var categories: [String: Category.ID] = [:]
+        for (group, names) in [("Bills", ["Rent", "Utilities"]), ("Everyday", ["Groceries", "Dining Out"])] {
+            let groupID = try await client.createCategoryGroup(planID: plan.id, name: group).id
+            for name in names {
+                categories[name] = try await client.createCategory(planID: plan.id, groupID: groupID, name: name).id
+            }
+        }
+        let checking = created["Everyday Checking"]!, visa = created["Visa"]!
+        let entries: [(Account, Int, Int, PayeeChoice, Category.ID?, String?, ClearedState)] = [
+            (checking, -6, 2_150_000, .named("Employer"), Category.readyToAssign, "Salary", .cleared),
+            (checking, -5, -1_400_000, .named("Landlord"), categories["Rent"], nil, .cleared),
+            (checking, -4, -86_420, .named("Corner Shop"), categories["Groceries"], "Weekly shop", .cleared),
+            (checking, -3, -250_000, .existing(created["Emergency Fund"]!.transferPayeeId), nil, nil, .uncleared),
+            (visa, -2, -42_500, .named("Noodle Bar"), categories["Dining Out"], "Lunch with Sam", .uncleared),
+            (checking, -1, -61_300, .named("Power Co"), categories["Utilities"], nil, .uncleared),
+        ]
+        for (account, days, amount, payee, category, memo, cleared) in entries {
+            _ = try await client.createTransaction(planID: plan.id, NewTransaction(
+                accountId: account.id,
+                date: PlanDate.string(from: Calendar.current.date(byAdding: .day, value: days, to: .now)!),
+                amount: amount, payee: payee, categoryId: category, memo: memo,
+                cleared: cleared, flagColor: nil
+            ))
         }
         return plan
     }

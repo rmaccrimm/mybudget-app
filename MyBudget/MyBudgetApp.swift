@@ -9,7 +9,7 @@ struct MyBudgetApp: App {
         Window("MyBudget", id: "main") {
             ContentView(model: appDelegate.model)
         }
-        .defaultSize(width: 960, height: 620)
+        .defaultSize(width: 1160, height: 680)
         .commands { PlanCommands(app: appDelegate.model) }
     }
 }

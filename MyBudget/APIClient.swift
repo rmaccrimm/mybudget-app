@@ -60,6 +60,55 @@ struct APIClient: Sendable {
         _ = try await send("DELETE", "plans/\(planID)/accounts/\(accountID)")
     }
 
+    /// SPEC 6.1: every payee, transfer payees included, oldest first.
+    func payees(planID: Plan.ID) async throws -> [Payee] {
+        try decode(await send("GET", "plans/\(planID)/payees").0)
+    }
+
+    /// SPEC 7.1: the internal `Credit Card Payments` group, then the plan's
+    /// own groups, oldest first, each with its categories.
+    func categoryGroups(planID: Plan.ID) async throws -> [CategoryGroup] {
+        try decode(await send("GET", "plans/\(planID)/categories").0)
+    }
+
+    /// SPEC 7.3.
+    func createCategoryGroup(planID: Plan.ID, name: String) async throws -> CategoryGroup {
+        struct Body: Encodable { let name: String }
+        return try decode(await send("POST", "plans/\(planID)/category_groups", body: Body(name: name)).0)
+    }
+
+    /// SPEC 7.5: a user category at the end of the group.
+    func createCategory(planID: Plan.ID, groupID: CategoryGroup.ID, name: String) async throws -> Category {
+        struct Body: Encodable { let groupId: String; let name: String }
+        return try decode(
+            await send("POST", "plans/\(planID)/categories", body: Body(groupId: groupID, name: name)).0
+        )
+    }
+
+    /// SPEC 8.5: the plan's transactions by date, oldest first within a date.
+    func transactions(planID: Plan.ID) async throws -> [Transaction] {
+        try decode(await send("GET", "plans/\(planID)/transactions").0)
+    }
+
+    /// SPEC 8.1. A transfer also creates its other half (SPEC 9.1).
+    func createTransaction(planID: Plan.ID, _ transaction: NewTransaction) async throws -> Transaction {
+        try decode(await send("POST", "plans/\(planID)/transactions", body: transaction).0)
+    }
+
+    /// SPEC 8.6. On a transfer, the other half may change too (SPEC 9.4, 9.5).
+    func updateTransaction(
+        planID: Plan.ID, transactionID: Transaction.ID, _ patch: TransactionPatch
+    ) async throws -> Transaction {
+        try decode(
+            await send("PATCH", "plans/\(planID)/transactions/\(transactionID)", body: patch).0
+        )
+    }
+
+    /// SPEC 8.7. Deleting either half of a transfer deletes both (SPEC 9.6).
+    func deleteTransaction(planID: Plan.ID, transactionID: Transaction.ID) async throws {
+        _ = try await send("DELETE", "plans/\(planID)/transactions/\(transactionID)")
+    }
+
     // MARK: - Plumbing
 
     private static let decoder: JSONDecoder = {
@@ -68,7 +117,8 @@ struct APIClient: Sendable {
         return decoder
     }()
 
-    private static let encoder: JSONEncoder = {
+    /// Internal so the tests can check request bodies as they're sent.
+    static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         return encoder

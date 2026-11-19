@@ -134,18 +134,38 @@ struct AccountPatch: Encodable, Sendable {
 enum NameRule {
     static let maxLength = 100
 
-    static func isValid(_ name: String) -> Bool {
+    static func isValid(_ name: String, maxLength: Int = NameRule.maxLength) -> Bool {
         let scalars = name.unicodeScalars
         return (1...maxLength).contains(scalars.count)
             && scalars.contains { !$0.properties.isWhitespace }
+    }
+
+    /// SPEC 3.9: a note or memo is at most 500 characters, and may be empty.
+    static func isValidNote(_ note: String, maxLength: Int = NameRule.maxMemoLength) -> Bool {
+        note.unicodeScalars.count <= maxLength
     }
 }
 
 /// SPEC 3.8 dates, in the user's time zone.
 enum PlanDate {
     static func string(from date: Date, timeZone: TimeZone = .current) -> String {
-        date.formatted(
-            Date.ISO8601FormatStyle(dateSeparator: .dash, timeZone: timeZone).year().month().day()
-        )
+        date.formatted(style(timeZone))
+    }
+
+    /// The start of the day `string` names, or `nil` if it isn't `YYYY-MM-DD`.
+    static func date(from string: String, timeZone: TimeZone = .current) -> Date? {
+        try? style(timeZone).parse(string)
+    }
+
+    /// `string` as the user's locale writes a short date, such as 10/4/26.
+    static func display(_ string: String, timeZone: TimeZone = .current, locale: Locale = .current) -> String {
+        guard let date = date(from: string, timeZone: timeZone) else { return string }
+        var style = Date.FormatStyle(date: .numeric, time: .omitted, locale: locale)
+        style.timeZone = timeZone
+        return date.formatted(style)
+    }
+
+    private static func style(_ timeZone: TimeZone) -> Date.ISO8601FormatStyle {
+        Date.ISO8601FormatStyle(dateSeparator: .dash, timeZone: timeZone).year().month().day()
     }
 }

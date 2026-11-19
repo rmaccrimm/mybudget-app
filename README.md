@@ -68,7 +68,10 @@ log show --last 5m --info --predicate 'subsystem == "local.mybudget.MyBudget"'
 - **Sidebar:** All Accounts, then the accounts in collapsible groups (Cash, Credit, Tracking, Closed), each with its total. Empty groups are hidden, and a group's expanded state is remembered. Accounts are in the server's order, oldest first.
 - **Add Account** (at the bottom of the sidebar, or File ▸ New Account…, ⇧⌘N) asks for a name, type, balance, date and note. For credit cards, lines of credit and liabilities it asks for the amount owed and sends it negated.
 - **Right-click an account** to edit its name and note, close or reopen it, or delete it. The server only closes an account with a zero balance (SPEC 5.8), so Close Account is disabled until then, and only deletes one with no transactions (SPEC 5.9).
-- **Detail:** a placeholder until the transaction register is built.
+- **Register:** the selected account's transactions, newest first, with Date, Payee, Category, Memo, Outflow, Inflow, a running Balance and a cleared column. Above it are the cleared, uncleared and working balances (SPEC 5.4). All Accounts shows every account's transactions with an Account column and no running balance. The server lists transactions oldest first within a date (SPEC 8.5), and the running balance adds them up in that order.
+- **Add Transaction** (the toolbar's +, or File ▸ New Transaction…, ⌘N) asks for the account, date, payee, category, outflow or inflow, memo, cleared and flag. The payee field completes from the plan's payees. A name it doesn't know creates a payee (SPEC 6.5), and `Transfer : <account>` makes a transfer (SPEC 9.1). A known payee brings the category of its last transaction. The category is required in budget accounts (SPEC 8.2), not needed in tracking accounts or for a transfer between two budget accounts (SPEC 9.3), and the + beside it creates a category, in a new group if need be.
+- **Editing:** double-click a transaction, or press Return, to edit it in the same sheet. The sheet sends only the fields that changed (SPEC 8.6), so an unchanged transfer keeps its other half. Click the cleared column to clear or unclear a transaction. Right-click for Mark as Cleared/Uncleared, Flag and Delete, which act on every selected transaction; the Delete key deletes too, after asking. Deleting a transfer deletes both halves (SPEC 9.6).
+- **After a change** the app reloads the accounts, transactions and payees, since a transfer also edits its other half and a payee name may create a payee.
 
 To look at the UI with data without touching your saved plans, launch a Debug build with `MYBUDGET_SAMPLE_DATA=1`. The server then keeps everything in memory, and the app adds and opens a sample plan, which is gone at the next launch:
 
@@ -84,14 +87,18 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 | `MyBudget/ServerProcess.swift` | Starts the bundled server and reads its address |
 | `MyBudget/APIClient.swift` | Typed client for the HTTP API |
 | `MyBudget/AppModel.swift` | Observable app state: the server, the plans and the open plan |
-| `MyBudget/PlanModel.swift` | The open plan's accounts; changes go to the server first |
+| `MyBudget/PlanModel.swift` | The open plan's accounts, transactions, payees and categories; changes go to the server first |
 | `MyBudget/Account.swift` | Account types, sidebar groups and request bodies (SPEC section 5) |
+| `MyBudget/Transaction.swift` | Transactions, payees, categories, their request bodies, the category rule and register rows (SPEC sections 6 to 10) |
 | `MyBudget/Money.swift` | Formats and parses amounts in milliunits (SPEC 3.7) |
 | `MyBudget/ContentView.swift` | The window: server state, then the plan chooser or the open plan |
 | `MyBudget/PlanChooser.swift` | Lists plans to open, and the New Plan sheet |
 | `MyBudget/PlanView.swift` | The open plan's split view, and the File menu commands |
 | `MyBudget/AccountSidebar.swift` | Accounts in collapsible Cash, Credit, Tracking and Closed groups |
 | `MyBudget/AccountSheets.swift` | The Add Account and Edit Account sheets |
+| `MyBudget/RegisterView.swift` | An account's transactions, with the balances above them |
+| `MyBudget/TransactionSheet.swift` | The Add and Edit Transaction sheet, and New Category |
+| `MyBudget/ComboBox.swift` | `NSComboBox` for SwiftUI, for the payee field |
 | `MyBudgetTests/` | Unit and integration tests (Swift Testing) |
 | `Config/` | Entitlements for the app and the bundled server |
 | `scripts/embed-server.sh` | The build phase that builds and embeds the server |
@@ -100,3 +107,8 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 
 - An account with a non-zero balance can't be closed. YNAB offers to add a balancing transaction first; that waits for the transaction register.
 - Accounts can't be reordered; the sidebar follows the server's order.
+- Transactions are entered in a sheet, not in the register row itself as in YNAB.
+- Split transactions (SPEC section 10) are shown, as "Split (n)" with the parts in a tooltip, but can't be created, and an existing split's amount and categories can't be changed.
+- There's no reconciling yet: a reconciled transaction shows a lock, and the app never sets one.
+- The app loads every transaction of the plan at once. The server has no paging, which is fine for years of manual entries but may need it once files are imported.
+- Categories can only be created from the transaction sheet, until there's a budget view.
