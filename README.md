@@ -4,6 +4,10 @@ The native macOS client for the MyBudget server. It talks to the server over HTT
 
 The app is outside the adversarial loop: neither agent can write here.
 
+## Working on the app
+
+Work directly on `main`. Don't create feature branches for app changes; commit to `main` and it stays the branch to merge into.
+
 ## Stack
 
 The priorities are fast startup and first-class macOS support.
