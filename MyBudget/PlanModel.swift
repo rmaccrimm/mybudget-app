@@ -142,6 +142,20 @@ final class PlanModel {
         try await reloadAfterTransactionChange()
     }
 
+    // MARK: Imports
+
+    func previewImport(_ file: Data) async throws -> ImportPreview {
+        try await client.previewImport(planID: plan.id, file: file)
+    }
+
+    /// Imports a file's statements (SPEC 17.7), creating transactions and
+    /// payees and clearing the ones it matches.
+    func importFile(_ file: Data, statements: [StatementOptions?]) async throws -> ImportResult {
+        let result = try await client.importFile(planID: plan.id, file: file, statements: statements)
+        try await reloadAfterTransactionChange()
+        return result
+    }
+
     /// Balances, transactions and payees can all change with a transaction.
     private func reloadAfterTransactionChange() async throws {
         let (id, client) = (plan.id, client)

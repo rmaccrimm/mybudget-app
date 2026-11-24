@@ -109,6 +109,26 @@ struct APIClient: Sendable {
         _ = try await send("DELETE", "plans/\(planID)/transactions/\(transactionID)")
     }
 
+    /// SPEC 17.6: what's in an OFX file, changing nothing.
+    func previewImport(planID: Plan.ID, file: Data) async throws -> ImportPreview {
+        struct Body: Encodable { let file: String }
+        return try decode(
+            await send("POST", "plans/\(planID)/imports/preview", body: Body(file: file.base64EncodedString())).0
+        )
+    }
+
+    /// SPEC 17.7: imports an OFX file's statements, one entry per statement
+    /// in the file, `nil` to skip one.
+    func importFile(planID: Plan.ID, file: Data, statements: [StatementOptions?]) async throws -> ImportResult {
+        struct Body: Encodable { let file: String; let statements: [StatementOptions?] }
+        return try decode(
+            await send(
+                "POST", "plans/\(planID)/imports",
+                body: Body(file: file.base64EncodedString(), statements: statements)
+            ).0
+        )
+    }
+
     // MARK: - Plumbing
 
     private static let decoder: JSONDecoder = {

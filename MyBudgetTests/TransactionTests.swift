@@ -191,3 +191,88 @@ struct BundledTransactionTests {
         #expect(plan.transactions.isEmpty)
     }
 }
+
+/// Importing SPEC 17.6's file into the bundled server, kept in memory.
+@MainActor
+@Suite(.serialized)
+struct BundledImportTests {
+    /// SPEC 17.6's example file, in OFX 1.x.
+    static let statement = Data("""
+    OFXHEADER:100
+    DATA:OFXSGML
+    VERSION:102
+    ENCODING:USASCII
+    CHARSET:1252
+
+    <OFX>
+    <BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STMTRS>
+    <CURDEF>USD
+    <BANKACCTFROM><BANKID>021000021<ACCTID>000123456789<ACCTTYPE>CHECKING</BANKACCTFROM>
+    <BANKTRANLIST><DTSTART>20261001<DTEND>20261031
+    <STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261005120000.000[-5:EST]<TRNAMT>-120.00
+    <FITID>202610050001<NAME>CORNER SHOP #42<MEMO>POS PURCHASE</STMTTRN>
+    <STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261015<TRNAMT>1800.00<FITID>202610150001
+    <NAME>ACME PAYROLL</STMTTRN>
+    <STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261020<TRNAMT>-64.99<FITID>202610200001
+    <NAME>CITY POWER & LIGHT</STMTTRN>
+    </BANKTRANLIST>
+    <LEDGERBAL><BALAMT>4115.01<DTASOF>20261031</LEDGERBAL>
+    </STMTRS></STMTTRNRS></BANKMSGSRSV1>
+    </OFX>
+    """.utf8)
+
+    @Test func skippedStatementsAreSentAsNull() throws {
+        let body = try TransactionRuleTests.json(
+            ["statements": [StatementOptions(accountId: "checking", invertAmounts: true), nil]]
+        )
+        let statements = try #require(body["statements"] as? [Any])
+        let first = try #require(statements[0] as? [String: Any])
+        #expect(first["account_id"] as? String == "checking")
+        #expect(first["swap_payee_memo"] as? Bool == false)
+        #expect(first["invert_amounts"] as? Bool == true)
+        #expect(statements[1] is NSNull)
+    }
+
+    @Test func previewsImportsAndSkipsDuplicates() async throws {
+        let server = ServerProcess(dataDirectory: nil)
+        defer { server.stop() }
+        let client = APIClient(baseURL: try await server.start())
+        let plan = PlanModel(plan: try await client.createPlan(name: "Household"), client: client)
+        try await plan.reload()
+        let checking = try await plan.addAccount(NewAccount(
+            name: "Checking", type: .checking, startingBalance: 2_500_000, startingDate: "2026-10-01"
+        ))
+        let shop = try await plan.addTransaction(NewTransaction(
+            accountId: checking.id, date: "2026-10-04", amount: -120_000, payee: .named("Corner Shop"),
+            categoryId: nil, memo: "weekly shop", cleared: .uncleared, flagColor: nil
+        ))
+
+        let preview = try await plan.previewImport(Self.statement)
+        let statement = try #require(preview.statements.first)
+        #expect(statement.type == .bank)
+        #expect(ImportSheet.title(statement) == "Checking ••••6789")
+        #expect(statement.ledgerBalance == 4_115_010)
+        #expect(statement.accountId == nil)
+        #expect(statement.transactions.map(\.amount) == [-120_000, 1_800_000, -64_990])
+
+        let result = try await plan.importFile(
+            Self.statement, statements: [StatementOptions(accountId: checking.id)]
+        )
+        let outcome = try #require(result.statements.first ?? nil)
+        #expect(outcome.matched.map(\.id) == [shop.id])
+        #expect(outcome.imported.count == 2)
+        #expect(outcome.duplicates.isEmpty)
+        // The model reloaded: the balance is the bank's, and the match cleared.
+        #expect(plan.account(id: checking.id)?.balance == 4_115_010)
+        #expect(plan.transaction(id: shop.id)?.cleared == .cleared)
+        #expect(plan.payees.contains { $0.name == "ACME PAYROLL" })
+
+        // SPEC 17.13: the account is remembered, and SPEC 17.9: nothing twice.
+        #expect(try await plan.previewImport(Self.statement).statements.first?.accountId == checking.id)
+        let again = try await plan.importFile(
+            Self.statement, statements: [StatementOptions(accountId: checking.id)]
+        )
+        #expect(again.statements.first??.duplicates.count == 3)
+        #expect(again.statements.first??.imported.isEmpty == true)
+    }
+}

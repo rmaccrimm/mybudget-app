@@ -10,5 +10,8 @@
 	<!-- The server inherits this sandbox (Server.entitlements), and it has to listen. -->
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- Import File reads the bank statement the user picks in the open panel. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 </dict>
 </plist>

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// An account's transactions, newest first, or every account's when
 /// `accountID` is `nil`.
@@ -10,6 +11,8 @@ struct RegisterView: View {
     @State private var selection = Set<Transaction.ID>()
     @State private var deleting: [Transaction]?
     @State private var actionError: String?
+    @State private var choosingFile = false
+    @State private var importing: ImportFile?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,15 +21,34 @@ struct RegisterView: View {
             table
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    choosingFile = true
+                } label: {
+                    Label("Import File", systemImage: "square.and.arrow.down")
+                        .labelStyle(.titleAndIcon)
+                }
+                .help("Import an OFX or QFX file from your bank")
+                .disabled(plan.accounts.isEmpty)
+
                 Button {
                     editor = .add(accountID)
                 } label: {
                     Label("Add Transaction", systemImage: "plus")
+                        .labelStyle(.titleAndIcon)
                 }
                 .help("Add Transaction (⌘N)")
                 .disabled(plan.accounts.isEmpty)
             }
+        }
+        .fileImporter(isPresented: $choosingFile, allowedContentTypes: UTType.bankStatements) { result in
+            switch result {
+            case .success(let url): importing = ImportFile(url: url)
+            case .failure(let error): actionError = error.localizedDescription
+            }
+        }
+        .sheet(item: $importing) { file in
+            ImportSheet(plan: plan, file: file, suggestedAccountID: accountID)
         }
         .onChange(of: accountID) { selection = [] }
         .onChange(of: plan.transactions) {
@@ -129,7 +151,10 @@ struct RegisterView: View {
                          : "Add what you've spent and received to see it here.")
                 } actions: {
                     if !plan.accounts.isEmpty {
-                        Button("Add Transaction") { editor = .add(accountID) }
+                        HStack {
+                            Button("Add Transaction") { editor = .add(accountID) }
+                            Button("Import File…") { choosingFile = true }
+                        }
                     }
                 }
             }
