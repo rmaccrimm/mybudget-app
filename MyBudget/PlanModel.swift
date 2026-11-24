@@ -173,20 +173,80 @@ final class PlanModel {
 
     /// Creates a category at the end of a group, creating the group first
     /// when `group` names a new one.
-    func addCategory(name: String, to group: CategoryGroupChoice) async throws -> Category {
-        let groupID: CategoryGroup.ID
-        switch group {
-        case .existing(let id):
-            groupID = id
-        case .new(let groupName):
-            groupID = try await client.createCategoryGroup(planID: plan.id, name: groupName).id
-        }
-        let category = try await client.createCategory(planID: plan.id, groupID: groupID, name: name)
-        categoryGroups = try await client.categoryGroups(planID: plan.id)
+    func addCategory(
+        name: String, note: String? = nil, to group: CategoryGroupChoice
+    ) async throws -> Category {
+        let groupID = try await resolveGroupID(group)
+        let category = try await client.createCategory(
+            planID: plan.id, groupID: groupID, name: name, note: note
+        )
+        try await reloadCategories()
         return category
     }
 
+    /// Saves a category from the Plan page's sheet: creates it when `category`
+    /// is nil, and otherwise changes only the fields that differ. A change of
+    /// group moves the category to the end of the new group (SPEC 7.6).
+    func saveCategory(
+        _ category: Category?, name: String, note: String?, group: CategoryGroupChoice
+    ) async throws {
+        guard let category else {
+            _ = try await addCategory(name: name, note: note, to: group)
+            return
+        }
+        let groupID = try await resolveGroupID(group)
+        var patch = CategoryPatch()
+        if name != category.name { patch.name = name }
+        if note != category.note { patch.note = .some(note) }
+        if groupID != category.groupId { patch.groupId = groupID }
+        if !patch.isEmpty {
+            _ = try await client.updateCategory(planID: plan.id, categoryID: category.id, patch)
+        }
+        try await reloadCategories()
+    }
+
+    /// Deletes a category (SPEC 13). With `replacement`, its transactions and
+    /// assigned money move to that category; without it, a category in use
+    /// fails with 409.
+    func deleteCategory(_ category: Category, replacement: Category.ID?) async throws {
+        try await client.deleteCategory(
+            planID: plan.id, categoryID: category.id, reassignTo: replacement
+        )
+        try await reload()
+        try await loadMonth()
+    }
+
+    /// Whether a transaction or subtransaction uses the category (SPEC 13.2).
+    func isInUse(_ categoryID: Category.ID) -> Bool {
+        transactions.contains { transaction in
+            transaction.categoryId == categoryID
+                || transaction.subtransactions.contains { $0.categoryId == categoryID }
+        }
+    }
+
+    private func resolveGroupID(_ group: CategoryGroupChoice) async throws -> CategoryGroup.ID {
+        switch group {
+        case .existing(let id):
+            return id
+        case .new(let groupName):
+            let created = try await client.createCategoryGroup(planID: plan.id, name: groupName)
+            return created.id
+        }
+    }
+
+    /// Categories and groups changed, and the month lists its categories too.
+    private func reloadCategories() async throws {
+        categoryGroups = try await client.categoryGroups(planID: plan.id)
+        try await loadMonth()
+    }
+
     // MARK: Budget
+
+    /// Shows `month`, moved into the navigable range if it lies outside it
+    /// (see `BudgetMonth.navigableMonths`). The caller loads it.
+    func selectMonth(_ month: BudgetMonth) {
+        selectedMonth = month.clamped(to: BudgetMonth.navigableMonths())
+    }
 
     /// Loads `selectedMonth`. A response for a month no longer selected is
     /// dropped.

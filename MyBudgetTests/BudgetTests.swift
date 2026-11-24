@@ -72,4 +72,35 @@ struct BudgetTests {
         #expect(BudgetMonth(key: "2026-11") == BudgetMonth(year: 2026, month: 11))
         #expect(BudgetMonth(key: "2026-13") == nil)
     }
+
+    @Test func navigationStopsTwoMonthsPastThisOne() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 24)))
+        let range = BudgetMonth.navigableMonths(now: now, calendar: calendar)
+
+        #expect(range.upperBound == BudgetMonth(year: 2027, month: 1))
+        #expect(range.lowerBound == BudgetMonth(year: 1900, month: 1))
+        // Three months ahead is clamped to two; the past is not limited.
+        #expect(BudgetMonth(year: 2027, month: 2).clamped(to: range) == BudgetMonth(year: 2027, month: 1))
+        #expect(BudgetMonth(year: 2027, month: 1).clamped(to: range) == BudgetMonth(year: 2027, month: 1))
+        #expect(BudgetMonth(year: 2019, month: 5).clamped(to: range) == BudgetMonth(year: 2019, month: 5))
+        #expect(BudgetMonth(year: 1800, month: 5).clamped(to: range) == BudgetMonth(year: 1900, month: 1))
+    }
+
+    @Test func categoryPatchSendsOnlyWhatItSetAndAnExplicitNullNote() throws {
+        let rename = try Self.json(CategoryPatch(name: "Food"))
+        #expect(rename.keys.sorted() == ["name"])
+
+        let clearNote = try Self.json(CategoryPatch(note: .some(nil)))
+        #expect(clearNote.keys.sorted() == ["note"])
+        #expect(clearNote["note"] is NSNull)
+
+        let move = try Self.json(CategoryPatch(groupId: "BILLS_ID"))
+        #expect(move["group_id"] as? String == "BILLS_ID")
+        #expect(move.keys.sorted() == ["group_id"])
+
+        #expect(CategoryPatch().isEmpty)
+        #expect(!CategoryPatch(note: .some("due on the 1st")).isEmpty)
+    }
 }

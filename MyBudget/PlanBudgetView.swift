@@ -7,13 +7,19 @@ struct PlanBudgetView: View {
 
     @State private var selectedCategoryID: Category.ID?
     @State private var targetEditor: Category?
+    @State private var categoryEditor: CategoryEditor?
+    @State private var deleting: Category?
+    @State private var showingMonthPicker = false
     @State private var loadError: String?
     @State private var actionError: String?
 
     private var currency: String { plan.currencyCode }
 
+    /// The months the page can reach: back without limit, forward two months
+    /// past the current one.
+    private var navigable: ClosedRange<BudgetMonth> { BudgetMonth.navigableMonths() }
+
     var body: some View {
-        @Bindable var plan = plan
         VStack(spacing: 0) {
             if let month = plan.month {
                 HeaderBar(month: month, currencyCode: currency)
@@ -27,37 +33,48 @@ struct PlanBudgetView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button {
-                    plan.selectedMonth = plan.selectedMonth.adding(months: -1)
+                    plan.selectMonth(plan.selectedMonth.adding(months: -1))
                 } label: {
                     Image(systemName: "chevron.left")
                 }
+                .disabled(plan.selectedMonth <= navigable.lowerBound)
                 .help("Previous Month")
 
-                Text(plan.selectedMonth.title)
-                    .font(.headline)
-                    .monospacedDigit()
-                    .frame(minWidth: 130)
+                Button {
+                    showingMonthPicker = true
+                } label: {
+                    Text(plan.selectedMonth.title)
+                        .font(.headline)
+                        .monospacedDigit()
+                        .frame(minWidth: 130)
+                }
+                .help("Choose a month")
+                .popover(isPresented: $showingMonthPicker, arrowEdge: .bottom) {
+                    MonthPicker(selection: plan.selectedMonth, range: navigable) { month in
+                        plan.selectMonth(month)
+                        showingMonthPicker = false
+                    }
+                }
 
                 Button {
-                    plan.selectedMonth = plan.selectedMonth.adding(months: 1)
+                    plan.selectMonth(plan.selectedMonth.adding(months: 1))
                 } label: {
                     Image(systemName: "chevron.right")
                 }
+                .disabled(plan.selectedMonth >= navigable.upperBound)
                 .help("Next Month")
 
-                Menu {
-                    ForEach(pickerMonths) { month in
-                        Button(month.title) { plan.selectedMonth = month }
-                    }
-                } label: {
-                    Label("Jump to Month", systemImage: "calendar")
-                }
-                .help("Jump to a month")
-
-                Button("Today") { plan.selectedMonth = .current() }
+                Button("Today") { plan.selectMonth(.current()) }
                     .help("Go to the current month")
             }
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    categoryEditor = .add(defaultGroup: selectedCategory?.groupId)
+                } label: {
+                    Label("New Category", systemImage: "plus")
+                }
+                .help("Add a category")
+
                 Button {
                     targetEditor = selectedCategory
                 } label: {
@@ -71,6 +88,18 @@ struct PlanBudgetView: View {
         .sheet(item: $targetEditor) { category in
             TargetSheet(plan: plan, category: category)
         }
+        .sheet(item: $categoryEditor) { editor in
+            CategorySheet(plan: plan, editor: editor)
+        }
+        .sheet(item: $deleting) { category in
+            DeleteCategorySheet(plan: plan, category: category)
+        }
+        .onChange(of: plan.categoryGroups) {
+            // The selected category was deleted.
+            if let id = selectedCategoryID, plan.categoriesByID[id] == nil {
+                selectedCategoryID = nil
+            }
+        }
         .alert(
             "Couldn't Change the Plan",
             isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
@@ -78,16 +107,6 @@ struct PlanBudgetView: View {
         } message: {
             Text(actionError ?? "")
         }
-    }
-
-    /// Two years either side of the current month, and the selected month.
-    private var pickerMonths: [BudgetMonth] {
-        let now = BudgetMonth.current()
-        var first = now.adding(months: -24)
-        var last = now.adding(months: 24)
-        first = min(first, plan.selectedMonth)
-        last = max(last, plan.selectedMonth)
-        return BudgetMonth.range(from: first, through: last)
     }
 
     private var selectedCategory: Category? {
@@ -124,6 +143,8 @@ struct PlanBudgetView: View {
                                 selected: selectedCategoryID == category.id,
                                 onSelect: { selectedCategoryID = category.id },
                                 onTarget: { targetEditor = category },
+                                onEdit: { categoryEditor = .edit(category) },
+                                onDelete: { deleting = category },
                                 onAssign: { amount in assign(amount, to: category) }
                             )
                             Divider()
@@ -207,6 +228,8 @@ private struct CategoryRow: View {
     let selected: Bool
     var onSelect: () -> Void
     var onTarget: () -> Void
+    var onEdit: () -> Void
+    var onDelete: () -> Void
     var onAssign: (Int) -> Void
 
     private var isPayment: Bool { category.paymentAccountId != nil }
@@ -250,6 +273,15 @@ private struct CategoryRow: View {
         .background(selected ? AnyShapeStyle(.selection.opacity(0.25)) : AnyShapeStyle(.clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        .contextMenu {
+            // Payment categories go only with their account (SPEC 13.1).
+            if !isPayment {
+                Button("Edit Category…", action: onEdit)
+                Button("Set Target…", action: onTarget)
+                Divider()
+                Button("Delete Category…", role: .destructive, action: onDelete)
+            }
+        }
     }
 }
 

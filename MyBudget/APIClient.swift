@@ -78,11 +78,33 @@ struct APIClient: Sendable {
     }
 
     /// SPEC 7.5: a user category at the end of the group.
-    func createCategory(planID: Plan.ID, groupID: CategoryGroup.ID, name: String) async throws -> Category {
-        struct Body: Encodable { let groupId: String; let name: String }
+    func createCategory(
+        planID: Plan.ID, groupID: CategoryGroup.ID, name: String, note: String? = nil
+    ) async throws -> Category {
+        struct Body: Encodable { let groupId: String; let name: String; let note: String? }
         return try decode(
-            await send("POST", "plans/\(planID)/categories", body: Body(groupId: groupID, name: name)).0
+            await send(
+                "POST", "plans/\(planID)/categories",
+                body: Body(groupId: groupID, name: name, note: note)
+            ).0
         )
+    }
+
+    /// SPEC 7.6: changes only the fields the patch sets.
+    func updateCategory(
+        planID: Plan.ID, categoryID: Category.ID, _ patch: CategoryPatch
+    ) async throws -> Category {
+        try decode(await send("PATCH", "plans/\(planID)/categories/\(categoryID)", body: patch).0)
+    }
+
+    /// SPEC 13.1 to 13.3. With `reassignTo`, the category's transactions and
+    /// assigned money move to that category. Without it, a category in use
+    /// fails with 409.
+    func deleteCategory(
+        planID: Plan.ID, categoryID: Category.ID, reassignTo: Category.ID?
+    ) async throws {
+        let query = reassignTo.map { [URLQueryItem(name: "reassign_to", value: $0)] } ?? []
+        _ = try await send("DELETE", "plans/\(planID)/categories/\(categoryID)", query: query)
     }
 
     /// SPEC 11.6.
@@ -176,9 +198,13 @@ struct APIClient: Sendable {
     }
 
     private func send(
-        _ method: String, _ path: String, body: (some Encodable)? = nil as Never?
+        _ method: String, _ path: String, body: (some Encodable)? = nil as Never?,
+        query: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: baseURL.appending(path: path))
+        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
+        if !query.isEmpty { components?.queryItems = query }
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

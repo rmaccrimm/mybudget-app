@@ -50,6 +50,18 @@ struct BudgetMonth: Hashable, Comparable, Sendable, Identifiable {
         return date.formatted(.dateTime.month(.wide).year().locale(.current))
     }
 
+    /// The months the Plan page can show (the user's rule): from `1900-01`, the
+    /// server's first month (SPEC 3.8), through two months after the current
+    /// month. The past has no other limit.
+    static func navigableMonths(now: Date = .now, calendar: Calendar = .current) -> ClosedRange<BudgetMonth> {
+        BudgetMonth(year: 1900, month: 1)...current(now: now, calendar: calendar).adding(months: 2)
+    }
+
+    /// This month, moved into `range` if it lies outside it.
+    func clamped(to range: ClosedRange<BudgetMonth>) -> BudgetMonth {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+
     /// The months from `first` through `last`, inclusive.
     static func range(from first: BudgetMonth, through last: BudgetMonth) -> [BudgetMonth] {
         var months: [BudgetMonth] = []
@@ -139,6 +151,32 @@ struct TargetPatch: Encodable, Sendable {
 
 struct AssignedPatch: Encodable, Sendable {
     var assigned: Int
+}
+
+/// The body of `PATCH /plans/{plan}/categories/{id}` for a user category
+/// (SPEC 7.6). Only the fields that are set are sent. `note` is doubly
+/// optional so that `.some(nil)` sends an explicit `null`, which clears it.
+struct CategoryPatch: Encodable, Sendable, Equatable {
+    var name: String?
+    var note: String??
+    var groupId: CategoryGroup.ID?
+
+    var isEmpty: Bool { self == CategoryPatch() }
+
+    private enum CodingKeys: String, CodingKey { case name, note, groupId }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        if let note {
+            if let note {
+                try container.encode(note, forKey: .note)
+            } else {
+                try container.encodeNil(forKey: .note)
+            }
+        }
+        try container.encodeIfPresent(groupId, forKey: .groupId)
+    }
 }
 
 /// A category's entry in a month (SPEC 11.3, 18.5).

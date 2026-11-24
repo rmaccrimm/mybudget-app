@@ -69,6 +69,7 @@ log show --last 5m --info --predicate 'subsystem == "local.mybudget.MyBudget"'
 ## The window
 
 - **Plan chooser:** at launch the window lists the plans. Double-click one or press Open; New Plan… names a plan and picks its currency. The app reopens the last plan at the next launch. File ▸ Switch Plan changes plans, and File ▸ All Plans… (⇧⌘O) goes back to the chooser.
+- **Plan:** the sidebar's Plan item shows each category's target, assigned, activity and available for the month. The toolbar steps through months, and the month title opens a calendar to jump to one. Months go back without limit and forward two months past the current one. New Category adds one; right-click a category to edit it (name, note, group), set its target or delete it. Deleting asks what to move its transactions and assigned money to. A category in use must be moved, and an unused one can return its money to Ready to Assign.
 - **Sidebar:** All Accounts, then the accounts in collapsible groups (Cash, Credit, Tracking, Closed), each with its total. Empty groups are hidden, and a group's expanded state is remembered. Accounts are in the server's order, oldest first.
 - **Add Account** (at the bottom of the sidebar, or File ▸ New Account…, ⇧⌘N) asks for a name, type, balance, date and note. For credit cards, lines of credit and liabilities it asks for the amount owed and sends it negated.
 - **Right-click an account** to edit its name and note, close or reopen it, or delete it. The server only closes an account with a zero balance (SPEC 5.8), so Close Account is disabled until then, and only deletes one with no transactions (SPEC 5.9).
@@ -95,6 +96,8 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 | `MyBudget/Budget.swift` | Months, targets, month entries and their request bodies (SPEC sections 11 and 18) |
 | `MyBudget/PlanBudgetView.swift` | The Plan page: month toolbar, header and category table |
 | `MyBudget/TargetSheet.swift` | The Set Target sheet |
+| `MyBudget/CategorySheets.swift` | The New/Edit Category sheet and the Delete Category sheet, which moves a category's transactions and money to another category |
+| `MyBudget/MonthPicker.swift` | The calendar popover behind the Plan page's month title |
 | `MyBudget/Account.swift` | Account types, sidebar groups and request bodies (SPEC section 5) |
 | `MyBudget/Transaction.swift` | Transactions, payees, categories, their request bodies, the category rule and the register's order (SPEC sections 6 to 10) |
 | `MyBudget/Money.swift` | Formats and parses amounts in milliunits (SPEC 3.7) |
@@ -118,4 +121,4 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 - Split transactions (SPEC section 10) are shown, as "Split (n)" with the parts in a tooltip, but can't be created, and an existing split's amount and categories can't be changed.
 - There's no reconciling yet: a reconciled transaction shows a lock, and the app never sets one.
 - The app loads every transaction of the plan at once. The server has no paging, which is fine for years of manual entries but may need it once files are imported.
-- Categories can only be created from the transaction sheet; the Plan page doesn't create, rename, hide or reorder them yet, and doesn't show hidden ones.
+- The Plan page doesn't hide or reorder categories yet, and doesn't show hidden ones. Groups can't be renamed, hidden or deleted from the app.
