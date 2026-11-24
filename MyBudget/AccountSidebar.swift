@@ -18,6 +18,9 @@ struct AccountSidebar: View {
 
     var body: some View {
         List(selection: $selection) {
+            Label("Plan", systemImage: "chart.pie")
+                .tag(SidebarItem.plan)
+
             Label("All Accounts", systemImage: "tray.full")
                 .tag(SidebarItem.allAccounts)
 

@@ -28,6 +28,10 @@ final class PlanModel {
         }
     }
 
+    /// The month the Plan page shows, and its budget once loaded.
+    var selectedMonth = BudgetMonth.current()
+    private(set) var month: MonthBudget?
+
     @ObservationIgnored private(set) var payeesByID: [Payee.ID: Payee] = [:]
     @ObservationIgnored private(set) var categoriesByID: [Category.ID: Category] = [:]
     @ObservationIgnored private let client: APIClient
@@ -180,6 +184,36 @@ final class PlanModel {
         let category = try await client.createCategory(planID: plan.id, groupID: groupID, name: name)
         categoryGroups = try await client.categoryGroups(planID: plan.id)
         return category
+    }
+
+    // MARK: Budget
+
+    /// Loads `selectedMonth`. A response for a month no longer selected is
+    /// dropped.
+    func loadMonth() async throws {
+        let requested = selectedMonth
+        let loaded = try await client.month(planID: plan.id, month: requested)
+        if requested == selectedMonth { month = loaded }
+    }
+
+    func setAssigned(_ assigned: Int, categoryID: Category.ID) async throws {
+        _ = try await client.setAssigned(
+            planID: plan.id, month: selectedMonth, categoryID: categoryID, assigned: assigned
+        )
+        try await reloadAfterBudgetChange()
+    }
+
+    /// Sets or, with `nil`, removes a category's target (SPEC 18.4).
+    func setTarget(_ target: TargetInput?, categoryID: Category.ID) async throws {
+        _ = try await client.setTarget(planID: plan.id, categoryID: categoryID, target)
+        try await reloadAfterBudgetChange()
+    }
+
+    /// Assigning or a target changes later months and the header, and targets
+    /// are in the category list.
+    private func reloadAfterBudgetChange() async throws {
+        categoryGroups = try await client.categoryGroups(planID: plan.id)
+        try await loadMonth()
     }
 
     // MARK: Names

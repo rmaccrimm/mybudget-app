@@ -85,6 +85,30 @@ struct APIClient: Sendable {
         )
     }
 
+    /// SPEC 11.6.
+    func month(planID: Plan.ID, month: BudgetMonth) async throws -> MonthBudget {
+        try decode(await send("GET", "plans/\(planID)/months/\(month.key)").0)
+    }
+
+    /// SPEC 11.2.
+    func setAssigned(
+        planID: Plan.ID, month: BudgetMonth, categoryID: Category.ID, assigned: Int
+    ) async throws -> MonthCategory {
+        try decode(
+            await send(
+                "PATCH", "plans/\(planID)/months/\(month.key)/categories/\(categoryID)",
+                body: AssignedPatch(assigned: assigned)
+            ).0
+        )
+    }
+
+    /// SPEC 18.3, 18.4: sets a target, or removes it with `nil`.
+    func setTarget(planID: Plan.ID, categoryID: Category.ID, _ target: TargetInput?) async throws -> Category {
+        try decode(
+            await send("PATCH", "plans/\(planID)/categories/\(categoryID)", body: TargetPatch(target: target)).0
+        )
+    }
+
     /// SPEC 8.5: the plan's transactions by date, oldest first within a date.
     func transactions(planID: Plan.ID) async throws -> [Transaction] {
         try decode(await send("GET", "plans/\(planID)/transactions").0)

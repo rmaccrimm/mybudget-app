@@ -79,6 +79,8 @@ struct Category: Codable, Identifiable, Hashable, Sendable {
     /// The credit account this is the payment category of, or `nil` for a
     /// user category. A transaction can never use a payment category.
     let paymentAccountId: Account.ID?
+    /// SPEC 18.3: the current target, or `nil`.
+    var target: BudgetTarget? = nil
 
     /// SPEC 7.7: Inflow: Ready to Assign isn't a category object, only an id.
     static let readyToAssign = "ready_to_assign"

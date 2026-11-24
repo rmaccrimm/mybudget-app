@@ -92,6 +92,9 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 | `MyBudget/APIClient.swift` | Typed client for the HTTP API |
 | `MyBudget/AppModel.swift` | Observable app state: the server, the plans and the open plan |
 | `MyBudget/PlanModel.swift` | The open plan's accounts, transactions, payees and categories; changes go to the server first |
+| `MyBudget/Budget.swift` | Months, targets, month entries and their request bodies (SPEC sections 11 and 18) |
+| `MyBudget/PlanBudgetView.swift` | The Plan page: month toolbar, header and category table |
+| `MyBudget/TargetSheet.swift` | The Set Target sheet |
 | `MyBudget/Account.swift` | Account types, sidebar groups and request bodies (SPEC section 5) |
 | `MyBudget/Transaction.swift` | Transactions, payees, categories, their request bodies, the category rule and the register's order (SPEC sections 6 to 10) |
 | `MyBudget/Money.swift` | Formats and parses amounts in milliunits (SPEC 3.7) |
@@ -115,4 +118,4 @@ open --env MYBUDGET_SAMPLE_DATA=1 build/Build/Products/Debug/MyBudget.app
 - Split transactions (SPEC section 10) are shown, as "Split (n)" with the parts in a tooltip, but can't be created, and an existing split's amount and categories can't be changed.
 - There's no reconciling yet: a reconciled transaction shows a lock, and the app never sets one.
 - The app loads every transaction of the plan at once. The server has no paging, which is fine for years of manual entries but may need it once files are imported.
-- Categories can only be created from the transaction sheet, until there's a budget view.
+- Categories can only be created from the transaction sheet; the Plan page doesn't create, rename, hide or reorder them yet, and doesn't show hidden ones.

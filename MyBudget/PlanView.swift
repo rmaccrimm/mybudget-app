@@ -2,6 +2,7 @@ import SwiftUI
 
 /// What the sidebar can select.
 enum SidebarItem: Hashable {
+    case plan
     case allAccounts
     case account(Account.ID)
 }
@@ -10,7 +11,7 @@ enum SidebarItem: Hashable {
 struct PlanView: View {
     let plan: PlanModel
 
-    @State private var selection: SidebarItem? = .allAccounts
+    @State private var selection: SidebarItem? = .plan
     @State private var addingAccount = false
     @State private var editor: TransactionEditor?
 
@@ -19,7 +20,11 @@ struct PlanView: View {
             AccountSidebar(plan: plan, selection: $selection, addingAccount: $addingAccount)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
-            RegisterView(plan: plan, accountID: selectedAccountID, editor: $editor)
+            if selection == .plan || selection == nil {
+                PlanBudgetView(plan: plan)
+            } else {
+                RegisterView(plan: plan, accountID: selectedAccountID, editor: $editor)
+            }
         }
         .navigationTitle(plan.plan.name)
         .navigationSubtitle(subtitle)
@@ -39,7 +44,7 @@ struct PlanView: View {
         .onChange(of: plan.accounts) {
             // The selected account was deleted.
             if case .account(let id) = selection, plan.account(id: id) == nil {
-                selection = .allAccounts
+                selection = .plan
             }
         }
     }
@@ -51,7 +56,8 @@ struct PlanView: View {
     private var subtitle: String {
         switch selection {
         case .account(let id): plan.account(id: id)?.name ?? ""
-        case .allAccounts, nil: "All Accounts"
+        case .plan, nil: "Plan"
+        case .allAccounts: "All Accounts"
         }
     }
 }
