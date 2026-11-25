@@ -161,6 +161,46 @@ struct BundledTransactionTests {
         #expect(plan.account(id: checking.id)?.balance == 1_000_000)
     }
 
+    /// The Plan page may show the month while a transaction or account
+    /// changes elsewhere, so the loaded month follows those changes.
+    @Test func theLoadedMonthFollowsTransactionsAndAccounts() async throws {
+        let server = ServerProcess(dataDirectory: nil)
+        defer { server.stop() }
+        let client = APIClient(baseURL: try await server.start())
+        let plan = PlanModel(plan: try await client.createPlan(name: "Household"), client: client)
+        try await plan.reload()
+        plan.selectMonth(BudgetMonth(year: 2026, month: 10))
+
+        // No month is loaded until something asks for one.
+        let checking = try await plan.addAccount(NewAccount(
+            name: "Checking", type: .checking, startingBalance: 1_000_000, startingDate: "2026-10-01"
+        ))
+        #expect(plan.month == nil)
+        let groceries = try await plan.addCategory(name: "Groceries", to: .new("Everyday"))
+        try await plan.loadMonth()
+        let readyToAssign = try #require(plan.month?.readyToAssign)
+
+        let shop = try await plan.addTransaction(NewTransaction(
+            accountId: checking.id, date: "2026-10-04", amount: -120_000,
+            payee: .named("Corner Shop"), categoryId: groceries.id, memo: nil,
+            cleared: .uncleared, flagColor: nil
+        ))
+        #expect(plan.month?.entry(for: groceries.id)?.activity == -120_000)
+        #expect(plan.month?.entry(for: groceries.id)?.available == -120_000)
+
+        try await plan.update(shop, TransactionPatch(amount: -100_000))
+        #expect(plan.month?.entry(for: groceries.id)?.activity == -100_000)
+
+        // A starting balance is money to assign (SPEC 5.5).
+        _ = try await plan.addAccount(NewAccount(
+            name: "Savings", type: .savings, startingBalance: 500_000, startingDate: "2026-10-02"
+        ))
+        #expect(plan.month?.readyToAssign == readyToAssign + 500_000)
+
+        try await plan.delete([try #require(plan.transaction(id: shop.id))])
+        #expect(plan.month?.entry(for: groceries.id)?.activity == 0)
+    }
+
     @Test func transfersShowInBothAccounts() async throws {
         let server = ServerProcess(dataDirectory: nil)
         defer { server.stop() }

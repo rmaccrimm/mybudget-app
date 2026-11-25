@@ -58,6 +58,7 @@ final class PlanModel {
         categoryGroups.filter { !$0.internal }
     }
 
+    /// Loads everything, and the month if one is loaded.
     func reload() async throws {
         let (id, client) = (plan.id, client)
         async let accounts = client.accounts(planID: id)
@@ -67,6 +68,7 @@ final class PlanModel {
         (self.accounts, self.transactions, self.payees, self.categoryGroups) =
             try await (accounts, transactions, payees, categoryGroups)
         log.info("Loaded \(self.accounts.count) accounts and \(self.transactions.count) transactions")
+        try await reloadMonthIfLoaded()
     }
 
     // MARK: Accounts
@@ -160,13 +162,15 @@ final class PlanModel {
         return result
     }
 
-    /// Balances, transactions and payees can all change with a transaction.
+    /// Balances, transactions and payees can all change with a transaction,
+    /// and so can the month's activity, available amounts and Ready to Assign.
     private func reloadAfterTransactionChange() async throws {
         let (id, client) = (plan.id, client)
         async let accounts = client.accounts(planID: id)
         async let transactions = client.transactions(planID: id)
         async let payees = client.payees(planID: id)
         (self.accounts, self.transactions, self.payees) = try await (accounts, transactions, payees)
+        try await reloadMonthIfLoaded()
     }
 
     // MARK: Categories
@@ -213,7 +217,6 @@ final class PlanModel {
             planID: plan.id, categoryID: category.id, reassignTo: replacement
         )
         try await reload()
-        try await loadMonth()
     }
 
     /// Whether a transaction or subtransaction uses the category (SPEC 13.2).
@@ -254,6 +257,13 @@ final class PlanModel {
         let requested = selectedMonth
         let loaded = try await client.month(planID: plan.id, month: requested)
         if requested == selectedMonth { month = loaded }
+    }
+
+    /// After a change made elsewhere, such as a transaction, the Plan page
+    /// may be showing the month. One not loaded yet is left for the Plan page
+    /// to load when it's shown.
+    private func reloadMonthIfLoaded() async throws {
+        if month != nil { try await loadMonth() }
     }
 
     func setAssigned(_ assigned: Int, categoryID: Category.ID) async throws {
