@@ -20,7 +20,7 @@ struct TargetSheet: View {
         let current = category.target
         _kind = State(initialValue: current?.type ?? .refill)
         _amountText = State(
-            initialValue: current.map { Money.format($0.amount, currencyCode: plan.currencyCode) } ?? ""
+            initialValue: current.map { Money.format($0.amount, currencyCode: plan.currencyCode, narrow: true) } ?? ""
         )
         _dueDay = State(initialValue: current?.byDate)
         _startMonth = State(
@@ -53,7 +53,7 @@ struct TargetSheet: View {
                 }
                 TextField(
                     "Amount", text: $amountText,
-                    prompt: Text(Money.format(0, currencyCode: plan.currencyCode))
+                    prompt: Text(Money.format(0, currencyCode: plan.currencyCode, narrow: true))
                 )
                 Picker("Due", selection: $dueDay) {
                     Text("Last day of month").tag(Int?.none)

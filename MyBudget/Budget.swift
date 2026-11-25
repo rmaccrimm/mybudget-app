@@ -214,28 +214,24 @@ struct MonthBudget: Codable, Hashable, Sendable {
 }
 
 extension MonthCategory {
-    /// "Refill 4,000.00 · due Nov 15 · 1,200.00 to go", or "" without a target.
-    func targetText(currencyCode: String, locale: Locale = .current) -> String {
-        guard let target else { return "" }
-        var parts = ["\(target.type.title) \(Money.format(target.amount, currencyCode: currencyCode, locale: locale))"]
-        if let due, let date = Self.dueFormatter.date(from: due) {
-            parts.append("due " + date.formatted(
-                Date.FormatStyle(date: .omitted, time: .omitted, locale: locale, timeZone: .gmt)
-                    .month(.abbreviated).day()
-            ))
-        }
-        if let underfunded, underfunded > 0 {
-            parts.append("\(Money.format(underfunded, currencyCode: currencyCode, locale: locale)) to go")
-        }
-        return parts.joined(separator: " · ")
+    /// What a category's target still asks for this month.
+    enum TargetStatus: Equatable {
+        /// "$100.00 more needed by the 15th".
+        case underfunded(String)
+        case funded
     }
 
-    private static let dueFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .gmt
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    /// `nil` when no target applies this month.
+    func targetStatus(currencyCode: String, locale: Locale = .current) -> TargetStatus? {
+        guard target != nil else { return nil }
+        guard let underfunded, underfunded > 0 else { return .funded }
+        var text = "\(Money.format(underfunded, currencyCode: currencyCode, locale: locale, narrow: true)) more needed"
+        if let due, let day = due.split(separator: "-").last.flatMap({ Int($0) }) {
+            let ordinal = NumberFormatter()
+            ordinal.numberStyle = .ordinal
+            ordinal.locale = locale
+            text += " by the " + (ordinal.string(from: day as NSNumber) ?? String(day))
+        }
+        return .underfunded(text)
+    }
 }

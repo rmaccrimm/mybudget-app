@@ -68,17 +68,13 @@ struct PlanBudgetView: View {
                     .help("Go to the current month")
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    categoryEditor = .add(defaultGroup: selectedCategory?.groupId)
-                } label: {
-                    Label("New Category", systemImage: "plus")
-                }
-                .help("Add a category")
+                Button("New Category", action: addCategory)
+                    .help("Add a category")
 
                 Button {
                     targetEditor = selectedCategory
                 } label: {
-                    Label("Target", systemImage: "target").labelStyle(.titleAndIcon)
+                    Text("Set Target")
                 }
                 .disabled(selectedCategory == nil || selectedCategory?.paymentAccountId != nil)
                 .help("Set or remove the selected category's target")
@@ -107,6 +103,10 @@ struct PlanBudgetView: View {
         } message: {
             Text(actionError ?? "")
         }
+    }
+
+    private func addCategory() {
+        categoryEditor = .add(defaultGroup: selectedCategory?.groupId)
     }
 
     private var selectedCategory: Category? {
@@ -153,7 +153,12 @@ struct PlanBudgetView: View {
                         GroupRow(
                             name: group.name,
                             entries: categories.compactMap { plan.month?.entry(for: $0.id) },
-                            currencyCode: currency
+                            currencyCode: currency,
+                            // The payment group gets its categories from
+                            // credit accounts only.
+                            onAddCategory: group.internal
+                                ? nil
+                                : { categoryEditor = .add(defaultGroup: group.id) }
                         )
                     }
                 }
@@ -198,10 +203,22 @@ private struct GroupRow: View {
     let name: String
     let entries: [MonthCategory]
     let currencyCode: String
+    /// Adds a category to this group; `nil` for a group the user can't add to.
+    var onAddCategory: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(name).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Text(name).font(.headline)
+                if let onAddCategory {
+                    Button(action: onAddCategory) {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add a category to \(name)")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer().frame(width: Column.target)
             amount(entries.reduce(0) { $0 + $1.assigned })
             amount(entries.reduce(0) { $0 + $1.activity })
@@ -213,7 +230,7 @@ private struct GroupRow: View {
     }
 
     private func amount(_ value: Int, red: Bool = false) -> some View {
-        Text(Money.format(value, currencyCode: currencyCode))
+        Text(Money.format(value, currencyCode: currencyCode, narrow: true))
             .monospacedDigit()
             .fontWeight(.semibold)
             .foregroundStyle(red && value < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
@@ -241,10 +258,18 @@ private struct CategoryRow: View {
             Group {
                 if isPayment {
                     Text("")
-                } else if let entry, entry.target != nil {
-                    Button(entry.targetText(currencyCode: currencyCode), action: onTarget)
-                        .buttonStyle(.link)
-                        .lineLimit(1)
+                } else if let status = entry?.targetStatus(currencyCode: currencyCode) {
+                    Button(action: onTarget) {
+                        switch status {
+                        case .underfunded(let text):
+                            Text(text).foregroundStyle(.yellow)
+                        case .funded:
+                            Text("Funded").foregroundStyle(.green)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .lineLimit(1)
+                    .help("Edit the target")
                 } else {
                     Button("Set Target…", action: onTarget)
                         .buttonStyle(.link)
@@ -257,10 +282,10 @@ private struct CategoryRow: View {
             if let entry {
                 AssignedField(value: entry.assigned, currencyCode: currencyCode, onCommit: onAssign)
                     .frame(width: Column.amount)
-                Text(Money.format(entry.activity, currencyCode: currencyCode))
+                Text(Money.format(entry.activity, currencyCode: currencyCode, narrow: true))
                     .monospacedDigit()
                     .frame(width: Column.amount, alignment: .trailing)
-                Text(Money.format(entry.available, currencyCode: currencyCode))
+                Text(Money.format(entry.available, currencyCode: currencyCode, narrow: true))
                     .monospacedDigit()
                     .foregroundStyle(entry.available < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
                     .frame(width: Column.amount, alignment: .trailing)
@@ -286,39 +311,89 @@ private struct CategoryRow: View {
 }
 
 /// An amount edited in place: committed on Return or when focus leaves.
+/// The currency symbol sits beside the number rather than in the text, and
+/// greys out while editing.
 private struct AssignedField: View {
     let value: Int
     let currencyCode: String
     var onCommit: (Int) -> Void
 
     @State private var text = ""
+    /// The amount shown while not editing; ahead of `value` until the
+    /// server's answer arrives.
+    @State private var shown = 0
     @FocusState private var focused: Bool
 
+    private var symbol: (text: String, leads: Bool) { Money.symbol(currencyCode: currencyCode) }
+
     var body: some View {
-        TextField("", text: $text)
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-            .monospacedDigit()
-            .focused($focused)
-            .onAppear(perform: reset)
-            .onChange(of: value) { if !focused { reset() } }
-            .onSubmit(commit)
-            .onChange(of: focused) { _, isFocused in
-                if !isFocused { commit() }
+        let symbol = symbol
+        HStack(spacing: symbol.leads ? 0 : 3) {
+            TextField("", text: $text)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .focused($focused)
+                .overlay(alignment: .trailing) {
+                    if symbol.leads {
+                        // The symbol just left of the number: the hidden text
+                        // takes the number's width.
+                        HStack(spacing: 0) {
+                            symbolText(!focused && shown < 0 ? "-" + symbol.text : symbol.text)
+                            Text(text.isEmpty ? " " : text).hidden()
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
+            if !symbol.leads {
+                symbolText(symbol.text)
             }
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .textBackgroundColor)))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+            if focused {
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5).inset(by: -2))
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .onAppear { show(value) }
+        .onChange(of: value) { if !focused { show(value) } }
+        .onSubmit(commit)
+        .onChange(of: focused) { _, isFocused in
+            if isFocused {
+                text = Money.formatNumber(shown, currencyCode: currencyCode)
+            } else {
+                commit()
+            }
+        }
     }
 
-    private func reset() {
-        text = Money.format(value, currencyCode: currencyCode)
+    private func symbolText(_ text: String) -> some View {
+        Text(text).foregroundStyle(focused ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+    }
+
+    /// Shows `amount`. With the symbol in front, a negative amount's sign goes
+    /// before the symbol while not editing: "-$5.00", not "$-5.00".
+    private func show(_ amount: Int) {
+        shown = amount
+        let signless = !focused && symbol.leads
+        text = Money.formatNumber(signless ? abs(amount) : amount, currencyCode: currencyCode)
     }
 
     private func commit() {
         guard let parsed = Money.parse(text, currencyCode: currencyCode) else {
-            reset()
+            show(value)
             return
         }
         if parsed != value { onCommit(parsed) }
-        text = Money.format(parsed, currencyCode: currencyCode)
+        show(parsed)
     }
 }
 
@@ -330,7 +405,7 @@ private struct HeaderBar: View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Ready to Assign").font(.caption).foregroundStyle(.secondary)
-                Text(Money.format(month.readyToAssign, currencyCode: currencyCode))
+                Text(Money.format(month.readyToAssign, currencyCode: currencyCode, narrow: true))
                     .font(.title2.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(month.readyToAssign < 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
@@ -349,7 +424,7 @@ private struct HeaderBar: View {
     private func stat(_ title: String, _ value: Int) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(Money.format(value, currencyCode: currencyCode)).monospacedDigit()
+            Text(Money.format(value, currencyCode: currencyCode, narrow: true)).monospacedDigit()
         }
     }
 }

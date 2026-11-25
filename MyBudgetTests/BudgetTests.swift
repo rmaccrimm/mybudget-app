@@ -33,9 +33,14 @@ struct BudgetTests {
         #expect(groceries.target?.type == .refill)
         #expect(groceries.target?.byDate == 15)
         #expect(groceries.underfunded == 120_000)
-        #expect(groceries.targetText(currencyCode: "USD", locale: Locale(identifier: "en_US"))
-                == "Refill $400.00 · due Nov 15 · $120.00 to go")
-        #expect(month.entry(for: "DINING_ID")?.targetText(currencyCode: "USD") == "")
+        #expect(groceries.targetStatus(currencyCode: "USD", locale: Locale(identifier: "en_US"))
+                == .underfunded("$120.00 more needed by the 15th"))
+        #expect(groceries.targetStatus(currencyCode: "USD", locale: Locale(identifier: "en_CA"))
+                == .underfunded("$120.00 more needed by the 15th"))
+        var funded = groceries
+        funded.underfunded = 0
+        #expect(funded.targetStatus(currencyCode: "USD") == .funded)
+        #expect(month.entry(for: "DINING_ID")?.targetStatus(currencyCode: "USD") == nil)
     }
 
     @Test func removingATargetSendsAnExplicitNull() throws {

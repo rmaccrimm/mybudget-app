@@ -35,6 +35,15 @@ struct MoneyTests {
     @Test func formatsInThePlansCurrency() {
         #expect(Money.format(2_500_000, currencyCode: "USD", locale: us) == "$2,500.00")
         #expect(Money.format(-350_000, currencyCode: "USD", locale: us) == "-$350.00")
+        let canada = Locale(identifier: "en_CA")
+        #expect(Money.format(0, currencyCode: "USD", locale: canada) == "US$0.00")
+        #expect(Money.format(0, currencyCode: "USD", locale: canada, narrow: true) == "$0.00")
+        #expect(Money.formatNumber(-1_234_500, currencyCode: "USD", locale: canada) == "-1,234.50")
+        #expect(Money.symbol(currencyCode: "USD", locale: canada) == ("$", true))
+        #expect(Money.parse("$12.50", currencyCode: "USD", locale: canada) == 12_500)
+        let germany = Locale(identifier: "de_DE")
+        #expect(Money.symbol(currencyCode: "EUR", locale: germany) == ("€", false))
+        #expect(Money.formatNumber(1_234_500, currencyCode: "EUR", locale: germany) == "1.234,50")
     }
 }
 
