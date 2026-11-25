@@ -310,90 +310,38 @@ private struct CategoryRow: View {
     }
 }
 
-/// An amount edited in place: committed on Return or when focus leaves.
-/// The currency symbol sits beside the number rather than in the text, and
-/// greys out while editing.
+/// A category's assigned amount, edited in place and saved on Return or when
+/// focus leaves. Text that isn't an amount goes back to the saved one.
 private struct AssignedField: View {
     let value: Int
     let currencyCode: String
     var onCommit: (Int) -> Void
 
-    @State private var text = ""
-    /// The amount shown while not editing; ahead of `value` until the
-    /// server's answer arrives.
-    @State private var shown = 0
+    /// Ahead of `value` after a change, until the server's answer arrives.
+    @State private var text: String
     @FocusState private var focused: Bool
 
-    private var symbol: (text: String, leads: Bool) { Money.symbol(currencyCode: currencyCode) }
+    init(value: Int, currencyCode: String, onCommit: @escaping (Int) -> Void) {
+        self.value = value
+        self.currencyCode = currencyCode
+        self.onCommit = onCommit
+        _text = State(initialValue: Money.formatNumber(value, currencyCode: currencyCode))
+    }
 
     var body: some View {
-        let symbol = symbol
-        HStack(spacing: symbol.leads ? 0 : 3) {
-            TextField("", text: $text)
-                .textFieldStyle(.plain)
-                .multilineTextAlignment(.trailing)
-                .focused($focused)
-                .overlay(alignment: .trailing) {
-                    if symbol.leads {
-                        // The symbol just left of the number: the hidden text
-                        // takes the number's width.
-                        HStack(spacing: 0) {
-                            symbolText(!focused && shown < 0 ? "-" + symbol.text : symbol.text)
-                            Text(text.isEmpty ? " " : text).hidden()
-                        }
-                        .allowsHitTesting(false)
-                    }
-                }
-            if !symbol.leads {
-                symbolText(symbol.text)
+        AmountField("Assigned", text: $text, currencyCode: currencyCode, focus: $focused) { amount in
+            guard let amount else {
+                show(value)
+                return
             }
+            show(amount)
+            if amount != value { onCommit(amount) }
         }
-        .monospacedDigit()
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .textBackgroundColor)))
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
-            if focused {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 3)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5).inset(by: -2))
-        .contentShape(Rectangle())
-        .onTapGesture { focused = true }
-        .onAppear { show(value) }
         .onChange(of: value) { if !focused { show(value) } }
-        .onSubmit(commit)
-        .onChange(of: focused) { _, isFocused in
-            if isFocused {
-                text = Money.formatNumber(shown, currencyCode: currencyCode)
-            } else {
-                commit()
-            }
-        }
     }
 
-    private func symbolText(_ text: String) -> some View {
-        Text(text).foregroundStyle(focused ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-    }
-
-    /// Shows `amount`. With the symbol in front, a negative amount's sign goes
-    /// before the symbol while not editing: "-$5.00", not "$-5.00".
     private func show(_ amount: Int) {
-        shown = amount
-        let signless = !focused && symbol.leads
-        text = Money.formatNumber(signless ? abs(amount) : amount, currencyCode: currencyCode)
-    }
-
-    private func commit() {
-        guard let parsed = Money.parse(text, currencyCode: currencyCode) else {
-            show(value)
-            return
-        }
-        if parsed != value { onCommit(parsed) }
-        show(parsed)
+        text = Money.formatNumber(amount, currencyCode: currencyCode)
     }
 }
 

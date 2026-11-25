@@ -20,7 +20,7 @@ struct TargetSheet: View {
         let current = category.target
         _kind = State(initialValue: current?.type ?? .refill)
         _amountText = State(
-            initialValue: current.map { Money.format($0.amount, currencyCode: plan.currencyCode, narrow: true) } ?? ""
+            initialValue: current.map { Money.formatNumber($0.amount, currencyCode: plan.currencyCode) } ?? ""
         )
         _dueDay = State(initialValue: current?.byDate)
         _startMonth = State(
@@ -51,10 +51,12 @@ struct TargetSheet: View {
                 Picker("Type", selection: $kind) {
                     ForEach(BudgetTarget.Kind.allCases) { Text($0.title).tag($0) }
                 }
-                TextField(
-                    "Amount", text: $amountText,
-                    prompt: Text(Money.format(0, currencyCode: plan.currencyCode, narrow: true))
-                )
+                LabeledContent("Amount") {
+                    AmountField(
+                        "Amount", text: $amountText, currencyCode: plan.currencyCode,
+                        prompt: Money.formatNumber(0, currencyCode: plan.currencyCode)
+                    )
+                }
                 Picker("Due", selection: $dueDay) {
                     Text("Last day of month").tag(Int?.none)
                     Divider()

@@ -67,7 +67,7 @@ struct TransactionSheet: View {
             _categoryID = State(initialValue: category)
             _direction = State(initialValue: (transaction?.amount ?? 0) > 0 ? .inflow : .outflow)
             _amountText = State(initialValue: transaction.map {
-                Money.format(abs($0.amount), currencyCode: plan.currencyCode)
+                Money.formatNumber(abs($0.amount), currencyCode: plan.currencyCode)
             } ?? "")
             _memo = State(initialValue: transaction?.memo ?? "")
             _cleared = State(initialValue: transaction?.cleared.isCleared ?? false)
@@ -179,12 +179,10 @@ struct TransactionSheet: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                         .fixedSize()
-                        TextField(
-                            "Amount", text: $amountText,
-                            prompt: Text(Money.format(0, currencyCode: plan.currencyCode))
+                        AmountField(
+                            "Amount", text: $amountText, currencyCode: plan.currencyCode,
+                            prompt: Money.formatNumber(0, currencyCode: plan.currencyCode)
                         )
-                        .labelsHidden()
-                        .multilineTextAlignment(.trailing)
                     }
                 }
                 .disabled(isSplit)

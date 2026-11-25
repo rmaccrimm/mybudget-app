@@ -37,11 +37,13 @@ struct AddAccountSheet: View {
             }
 
             Section {
-                TextField(
-                    type.isDebt ? "Amount owed" : "Current balance",
-                    text: $balanceText,
-                    prompt: Text(Money.format(0, currencyCode: plan.currencyCode))
-                )
+                LabeledContent(type.isDebt ? "Amount owed" : "Current balance") {
+                    AmountField(
+                        type.isDebt ? "Amount owed" : "Current balance",
+                        text: $balanceText, currencyCode: plan.currencyCode,
+                        prompt: Money.formatNumber(0, currencyCode: plan.currencyCode)
+                    )
+                }
                 DatePicker("As of", selection: $startingDate, displayedComponents: .date)
                     .disabled(startingBalance == 0)
             } footer: {

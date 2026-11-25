@@ -14,15 +14,21 @@ struct MoneyTests {
         ("12.34", 12_340),
         ("-0.22", -220),
         ("-$0.22", -220),
-        ("0.001", 1),
+        ("USD 3", 3_000),
         ("  7  ", 7_000),
         ("1000000000", 1_000_000_000_000),
+        // Rounded half away from zero to the cent, as the amount is shown.
+        ("0.004", 0),
+        ("0.005", 10),
+        ("1.0001", 1_000),
+        ("-1.005", -1_010),
+        ("1000000000.004", 1_000_000_000_000),
     ])
     func parsesAmounts(text: String, milliunits: Int) {
         #expect(Money.parse(text, currencyCode: "USD", locale: us) == milliunits)
     }
 
-    @Test(arguments: ["abc", "1.0001", "1000000000.001", "-1000000001"])
+    @Test(arguments: ["abc", "$", "12abc", "1.2.3", "1,,2", "1000000000.01", "-1000000001"])
     func rejectsWhatIsntAnAmount(text: String) {
         #expect(Money.parse(text, currencyCode: "USD", locale: us) == nil)
     }
@@ -44,6 +50,9 @@ struct MoneyTests {
         let germany = Locale(identifier: "de_DE")
         #expect(Money.symbol(currencyCode: "EUR", locale: germany) == ("€", false))
         #expect(Money.formatNumber(1_234_500, currencyCode: "EUR", locale: germany) == "1.234,50")
+        // Arabic formats mark the number's direction; the symbol has no marks.
+        let egypt = Locale(identifier: "ar_EG")
+        #expect(Money.symbol(currencyCode: "EGP", locale: egypt) == ("E£", false))
     }
 }
 
